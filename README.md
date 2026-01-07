@@ -120,7 +120,7 @@ video_data = await doubao_video_parse(
 
 ### 获取分享链接方法
 
-| ![copy-image-link.jpg](docs\images\copy-image-link.jpg) | ![copy-video-link.jpg](docs\images\copy-video-link.jpg) |
+| ![copy-image-link.jpg](docs/images/copy-image-link.jpg) | ![copy-video-link.jpg](docs/images/copy-video-link.jpg) |
 | :-----------------------------------------------------: | :-----------------------------------------------------: |
 
 
