@@ -51,6 +51,7 @@ async def doubao_video_parse(url: str, return_raw: bool = False):
         share_id = share_id_list[0]
         vid = vid_list[0]
     except (IndexError, TypeError) as e:
+        print(f"Exception: {e}")
         raise ValueError("链接格式不正确，请确保使用豆包视频分享链接")
 
     json_data = {

@@ -76,6 +76,7 @@ async def parse_doubao(request: DouBaoRequest):
     except KeyError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        print(f"Exception: {e}")
         raise HTTPException(status_code=500, detail="图片解析失败，请检查链接是否正确")
 
 
@@ -93,6 +94,7 @@ async def parse_doubao_get(url: str, return_raw: bool = False):
     except KeyError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        print(f"Exception: {e}")
         raise HTTPException(status_code=500, detail="图片解析失败，请检查链接是否正确")
 
 
@@ -110,6 +112,7 @@ async def parse_video(request: VideoRequest):
     except KeyError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        print(f"Exception: {e}")
         raise HTTPException(status_code=500, detail="视频解析失败，请检查链接是否正确")
 
 
@@ -127,6 +130,7 @@ async def parse_video_get(url: str, return_raw: bool = False):
     except KeyError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        print(f"Exception: {e}")
         raise HTTPException(status_code=500, detail="视频解析失败，请检查链接是否正确")
 
 

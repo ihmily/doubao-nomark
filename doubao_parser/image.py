@@ -45,6 +45,7 @@ async def doubao_image_parse(url: str, return_raw: bool = False):
                         image_raw = image["image"]["image_ori_raw"]
                         image_list.append(image_raw)
     except KeyError as e:
+        print(f"Exception: {e}")
         raise KeyError("页面结构发生变化，无法解析图片数据")
     except json.JSONDecodeError:
         raise ValueError("页面数据格式错误，无法解析")

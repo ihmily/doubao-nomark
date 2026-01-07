@@ -36,8 +36,8 @@ jobs:
 
       - name: Run Ruff Linter
         run: |
-          ruff check app.py doubao_parser/
+          ruff check app.py doubao_parser/ --config .ruff.toml
 
       - name: Run Ruff Formatter Check
         run: |
-          ruff format --check app.py doubao_parser/
+          ruff format --check app.py doubao_parser/ --config .ruff.toml
