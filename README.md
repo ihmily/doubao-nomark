@@ -1,5 +1,10 @@
 # 无印豆包
 
+[![GitHub stars](https://img.shields.io/github/stars/ihmily/doubao-nomark)](https://github.com/ihmily/doubao-nomark/stargazers)
+[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Docker Pulls](https://img.shields.io/docker/pulls/ihmily/doubao-nomark)](https://hub.docker.com/r/ihmily/doubao-nomark/tags)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 从豆包对话链接中提取无水印图片和视频资源的 API 服务
 
 
@@ -186,9 +191,11 @@ video_data = await doubao_video_parse(
 }
 ```
 
+## Star History
 
+[![Star History Chart](https://api.star-history.com/svg?repos=ihmily/doubao-nomark&type=date&legend=top-left)](https://www.star-history.com/#ihmily/doubao-nomark&type=date&legend=top-left)
 
-## 📝 许可证
+## 许可证
 
 本项目仅供学习交流使用
 
