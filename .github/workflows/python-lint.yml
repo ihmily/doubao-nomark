@@ -35,9 +35,11 @@ jobs:
           pip install ruff
 
       - name: Run Ruff Linter
+        working-directory: .
         run: |
           ruff check app.py doubao_parser/ --config .ruff.toml
 
       - name: Run Ruff Formatter Check
+        working-directory: .
         run: |
           ruff format --check app.py doubao_parser/ --config .ruff.toml
