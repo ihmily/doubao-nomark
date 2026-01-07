@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="no-referrer">
+    <title>无印豆包</title>
+    <script src="https://unpkg.com/vue@3.5.25/dist/vue.global.prod.js"></script>
+    <script src="https://unpkg.com/axios@1.12.0/dist/axios.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #ffffff;
+            min-height: 100vh;
+            color: #1f1f1f;
+            line-height: 1.5;
+        }
+
+        #app {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 60px 24px;
+        }
+
+        .header {
+            margin-bottom: 32px;
+        }
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 8px;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            font-weight: 600;
+            color: #1f1f1f;
+        }
+
+        .tab-buttons {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .tab-btn {
+            padding: 8px 16px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            background: #ffffff;
+            color: #6b6b6b;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tab-btn.active {
+            background: #1f1f1f;
+            color: #ffffff;
+            border-color: #1f1f1f;
+        }
+
+        .tab-btn:hover:not(.active) {
+            border-color: #1f1f1f;
+            color: #1f1f1f;
+        }
+
+        .image-count {
+            font-size: 14px;
+            color: #6b6b6b;
+        }
+
+        .image-count span {
+            font-weight: 600;
+            color: #1f1f1f;
+        }
+
+        .header p {
+            font-size: 15px;
+            color: #6b6b6b;
+        }
+
+        .main-card {
+            background: #ffffff;
+        }
+
+        .input-section {
+            margin-bottom: 32px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .input-field {
+            flex: 1;
+            padding: 10px 14px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 15px;
+            background: #ffffff;
+            transition: border-color 0.2s;
+        }
+
+        .input-field:focus {
+            outline: none;
+            border-color: #1f1f1f;
+        }
+
+        .input-field::placeholder {
+            color: #a0a0a0;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #1f1f1f;
+            color: #ffffff;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: #3a3a3a;
+        }
+
+        .btn-primary:disabled {
+            background: #e0e0e0;
+            color: #a0a0a0;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 48px 0;
+            color: #6b6b6b;
+        }
+
+        .spinner {
+            border: 2px solid #f0f0f0;
+            border-top: 2px solid #1f1f1f;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+            margin: 32px 0;
+            display: none;
+        }
+
+        .stat-card {
+            background: #f7f7f7;
+            padding: 20px;
+            border-radius: 6px;
+        }
+
+        .stat-number {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: #1f1f1f;
+        }
+
+        .stat-label {
+            font-size: 14px;
+            color: #6b6b6b;
+        }
+
+        .images-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 16px;
+            margin-top: 32px;
+        }
+
+        .image-card {
+            position: relative;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #e0e0e0;
+            background: #fafafa;
+            transition: border-color 0.2s;
+        }
+
+        .image-card:hover {
+            border-color: #1f1f1f;
+        }
+
+        .image-card:hover .image-info {
+            opacity: 1;
+        }
+
+        .image-card img {
+            width: 100%;
+            height: 240px;
+            object-fit: cover;
+            display: block;
+        }
+
+        .video-card {
+            position: relative;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #e0e0e0;
+            background: #000000;
+        }
+
+        .video-card video {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .video-info {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            padding: 4px 8px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 4px;
+            font-size: 11px;
+            color: #ffffff;
+            font-weight: 500;
+            letter-spacing: 0.3px;
+        }
+
+        .video-actions {
+            display: flex;
+            gap: 8px;
+            padding: 12px;
+            background: #ffffff;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .image-info {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            padding: 4px 8px;
+            background: rgba(0, 0, 0, 0.7);
+            border-radius: 4px;
+            font-size: 11px;
+            color: #ffffff;
+            opacity: 0;
+            transition: opacity 0.2s;
+            font-weight: 500;
+            letter-spacing: 0.3px;
+        }
+
+        .image-actions {
+            display: flex;
+            gap: 8px;
+            padding: 12px;
+            background: #ffffff;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .action-btn {
+            flex: 1;
+            padding: 6px 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            background: #ffffff;
+            color: #1f1f1f;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .action-btn:hover {
+            background: #f7f7f7;
+            border-color: #1f1f1f;
+        }
+
+        .action-btn.success {
+            background: #f0fdf4;
+            border-color: #166534;
+            color: #166534;
+        }
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            font-size: 14px;
+        }
+
+        .alert-error {
+            background: #fef2f2;
+            color: #991b1b;
+            border: 1px solid #fecaca;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 80px 20px;
+            color: #a0a0a0;
+        }
+
+        .empty-state svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 16px;
+            stroke: #d0d0d0;
+        }
+
+        .empty-state h3 {
+            font-size: 16px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            color: #6b6b6b;
+        }
+
+        .empty-state p {
+            font-size: 14px;
+            color: #a0a0a0;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 768px) {
+            #app {
+                padding: 24px 16px;
+            }
+
+            .header {
+                margin-bottom: 24px;
+            }
+
+            .header-top {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+
+            .header h1 {
+                font-size: 24px;
+            }
+
+            .header p {
+                font-size: 14px;
+                line-height: 1.6;
+            }
+
+            .tab-buttons {
+                width: 100%;
+                gap: 8px;
+            }
+
+            .tab-btn {
+                flex: 1;
+                padding: 10px 12px;
+                font-size: 15px;
+            }
+
+            .input-group {
+                flex-direction: column;
+                gap: 12px;
+            }
+
+            .btn {
+                width: 100%;
+                padding: 12px 20px;
+                font-size: 16px;
+            }
+
+            .images-grid {
+                grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+                gap: 12px;
+            }
+
+            .image-card img {
+                height: 180px;
+            }
+
+            .image-actions,
+            .video-actions {
+                flex-wrap: wrap;
+                gap: 6px;
+                padding: 10px;
+            }
+
+            .action-btn {
+                font-size: 12px;
+                padding: 8px 10px;
+            }
+
+            .image-info,
+            .video-info {
+                font-size: 10px;
+                padding: 3px 6px;
+                opacity: 1;
+            }
+
+            .empty-state {
+                padding: 60px 20px;
+            }
+
+            .empty-state svg {
+                width: 48px;
+                height: 48px;
+            }
+
+            .empty-state h3 {
+                font-size: 15px;
+            }
+
+            .empty-state p {
+                font-size: 13px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            #app {
+                padding: 20px 12px;
+            }
+
+            .header h1 {
+                font-size: 20px;
+            }
+
+            .header p {
+                font-size: 13px;
+            }
+
+            .tab-btn {
+                padding: 8px 10px;
+                font-size: 14px;
+            }
+
+            .input-field {
+                font-size: 14px;
+                padding: 10px 12px;
+            }
+
+            .images-grid {
+                grid-template-columns: 1fr 1fr;
+                gap: 10px;
+            }
+
+            .image-card img {
+                height: 160px;
+            }
+
+            .action-btn {
+                flex: 1 1 calc(50% - 3px);
+                min-width: calc(50% - 3px);
+            }
+
+            .image-count {
+                font-size: 13px;
+            }
+        }
+
+        @media (hover: none) and (pointer: coarse) {
+            .tab-btn,
+            .btn,
+            .action-btn {
+                min-height: 44px;
+            }
+
+            .input-field {
+                min-height: 44px;
+            }
+
+            .image-info,
+            .video-info {
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="header">
+            <div class="header-top">
+                <h1>无印豆包</h1>
+                <div v-if="currentTab === 'image' && images.length > 0" class="image-count">
+                    已提取 <span>{{ images.length }}</span> 张图片
+                </div>
+                <div v-if="currentTab === 'video' && video" class="image-count">
+                    已提取 <span>1</span> 个视频
+                </div>
+            </div>
+            <p>一键提取豆包对话中的高清图片和视频，无水印、无压缩</p>
+        </div>
+
+        <div class="main-card">
+            <div class="input-section">
+                <div class="tab-buttons">
+                    <button 
+                        class="tab-btn" 
+                        :class="{ active: currentTab === 'image' }"
+                        @click="switchTab('image')"
+                    >
+                        图片解析
+                    </button>
+                    <button 
+                        class="tab-btn" 
+                        :class="{ active: currentTab === 'video' }"
+                        @click="switchTab('video')"
+                    >
+                        视频解析
+                    </button>
+                </div>
+
+                <div v-if="error" class="alert alert-error">
+                    {{ error }}
+                </div>
+
+                <div class="input-group">
+                    <input 
+                        v-model="url" 
+                        type="text" 
+                        class="input-field" 
+                        :placeholder="currentTab === 'image' ? '输入豆包对话链接，例如：https://www.doubao.com/thread/xxxxx' : '输入豆包视频分享链接，例如：https://www.doubao.com/video-sharing?share_id=xxx&video_id=xxx'"
+                        @keyup.enter="parseUrl"
+                    >
+                    <button 
+                        class="btn btn-primary" 
+                        @click="parseUrl"
+                        :disabled="loading || !url"
+                    >
+                        {{ loading ? '解析中...' : '解析' }}
+                    </button>
+                </div>
+            </div>
+
+            <div v-if="currentTab === 'image' && images.length > 0">
+                <div class="images-grid">
+                    <div v-for="(image, index) in images" :key="index" class="image-card">
+                        <img :src="image.url" :alt="`图片 ${index + 1}`" loading="lazy">
+                        <div class="image-info">
+                            {{ image.width }} × {{ image.height }}
+                        </div>
+                        <div class="image-actions">
+                            <button class="action-btn" @click="viewImage(image.url)">
+                                查看
+                            </button>
+                            <button 
+                                class="action-btn" 
+                                :class="{ success: downloadingIndex === index }"
+                                @click="downloadImage(image.url, index)"
+                            >
+                                {{ downloadingIndex === index ? '✓ 已下载' : '下载' }}
+                            </button>
+                            <button 
+                                class="action-btn" 
+                                :class="{ success: copiedIndex === index }"
+                                @click="copyUrl(image.url, index)"
+                            >
+                                {{ copiedIndex === index ? '✓ 已复制' : '复制' }}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="currentTab === 'video' && video">
+                <div class="video-card">
+                    <video :src="video.url" :poster="video.poster_url" controls></video>
+                    <div class="video-info">
+                        {{ video.width }} × {{ video.height }} | {{ video.definition }}
+                    </div>
+                    <div class="video-actions">
+                        <button class="action-btn" @click="viewVideo(video.url)">
+                            查看
+                        </button>
+                        <button 
+                            class="action-btn" 
+                            :class="{ success: videoDownloading }"
+                            @click="downloadVideo()"
+                        >
+                            {{ videoDownloading ? '✓ 已下载' : '下载' }}
+                        </button>
+                        <button 
+                            class="action-btn" 
+                            :class="{ success: videoCopied }"
+                            @click="copyVideoUrl()"
+                        >
+                            {{ videoCopied ? '✓ 已复制' : '复制原始地址' }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="loading" class="loading">
+                <div class="spinner"></div>
+                <p>解析中...</p>
+            </div>
+
+             <div v-if="!loading && currentTab === 'image' && images.length === 0" class="empty-state">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                <h3>暂无数据</h3>
+                <p>输入链接并点击解析来提取图片</p>
+            </div>
+
+            <div v-if="!loading && currentTab === 'video' && !video" class="empty-state">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <h3>暂无数据</h3>
+                <p>输入链接并点击解析来提取视频</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    currentTab: 'image', // 'image' or 'video'
+                    url: '',
+                    images: [],
+                    video: null,  // {url, width, height, definition, poster_url}
+                    loading: false,
+                    error: '',
+                    downloadingIndex: null,
+                    copiedIndex: null,
+                    videoDownloading: false,
+                    videoCopied: false,
+                    apiBaseUrl: window.location.origin
+                }
+            },
+
+            methods: {
+                async copyToClipboard(text) {
+                    try {
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                            await navigator.clipboard.writeText(text);
+                        } else {
+                            const textArea = document.createElement('textarea');
+                            textArea.value = text;
+                            textArea.style.position = 'fixed';
+                            textArea.style.left = '-999999px';
+                            textArea.style.top = '-999999px';
+                            document.body.appendChild(textArea);
+                            textArea.focus();
+                            textArea.select();
+                            try {
+                                document.execCommand('copy');
+                            } finally {
+                                document.body.removeChild(textArea);
+                            }
+                        }
+                        return true;
+                    } catch (error) {
+                        return false;
+                    }
+                },
+                switchTab(tab) {
+                    this.currentTab = tab;
+                    this.url = '';
+                    this.error = '';
+                    if (tab === 'image') {
+                        this.video = null;
+                    } else if (tab === 'video') {
+                        this.images = [];
+                    }
+                    this.downloadingIndex = null;
+                    this.copiedIndex = null;
+                    this.videoDownloading = false;
+                    this.videoCopied = false;
+                },
+                async parseUrl() {
+                    if (!this.url.trim()) {
+                        this.showError('请输入豆包对话链接');
+                        return;
+                    }
+
+                    this.loading = true;
+                    this.error = '';
+                    this.images = [];
+                    this.video = null;
+                    this.downloadingIndex = null;
+                    this.copiedIndex = null;
+                    this.videoDownloading = false;
+                    this.videoCopied = false;
+
+                    try {
+                        if (this.currentTab === 'image') {
+                            const response = await axios.get(`${this.apiBaseUrl}/parse`, {
+                                params: { url: this.url }
+                            });
+
+                            if (response.data.success) {
+                                this.images = response.data.images;
+                            } else {
+                                this.showError('解析失败，请检查链接是否正确');
+                            }
+                        } else {
+                            const response = await axios.get(`${this.apiBaseUrl}/parse-video`, {
+                                params: { url: this.url }
+                            });
+
+                            if (response.data.success) {
+                                this.video = response.data.video;
+                            } else {
+                                this.showError('解析失败，请检查链接是否正确');
+                            }
+                        }
+                    } catch (error) {
+                        console.error(error);
+                        if (error.response) {
+                            this.showError(error.response.data.detail || '解析失败');
+                        } else if (error.request) {
+                            this.showError('无法连接到服务器，请确保后端服务正在运行');
+                        } else {
+                            this.showError('发生未知错误');
+                        }
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+                viewImage(url) {
+                    window.open(url, '_blank');
+                },
+                async downloadImage(url, index) {
+                    try {
+                        this.downloadingIndex = index;
+                        const response = await fetch(url);
+                        const blob = await response.blob();
+                        const link = document.createElement('a');
+                        link.href = URL.createObjectURL(blob);
+                        link.download = `doubao_image_${index + 1}.jpg`;
+                        link.click();
+                        URL.revokeObjectURL(link.href);
+                        
+                        setTimeout(() => {
+                            this.downloadingIndex = null;
+                        }, 2000);
+                    } catch (error) {
+                        this.downloadingIndex = null;
+                        this.showError(`图片 ${index + 1} 下载失败`);
+                    }
+                },
+                async copyUrl(url, index) {
+                    const success = await this.copyToClipboard(url);
+                    
+                    if (success) {
+                        this.copiedIndex = index;
+                        setTimeout(() => {
+                            this.copiedIndex = null;
+                        }, 2000);
+                    } else {
+                        this.showError('复制失败，请手动复制');
+                    }
+                },
+                viewVideo(url) {
+                    window.open(url, '_blank');
+                },
+                async downloadVideo() {
+                    try {
+                        if (!this.video || !this.video.url) {
+                            this.showError('视频地址不存在');
+                            return;
+                        }
+                        this.videoDownloading = true;
+                        const response = await fetch(this.video.url);
+                        const blob = await response.blob();
+                        const link = document.createElement('a');
+                        link.href = URL.createObjectURL(blob);
+                        link.download = `doubao_video.mp4`;
+                        link.click();
+                        URL.revokeObjectURL(link.href);
+                        
+                        setTimeout(() => {
+                            this.videoDownloading = false;
+                        }, 2000);
+                    } catch (error) {
+                        this.videoDownloading = false;
+                        this.showError('视频下载失败');
+                    }
+                },
+                async copyVideoUrl() {
+                    if (!this.video || !this.video.url) {
+                        this.showError('视频地址不存在');
+                        return;
+                    }
+                    
+                    const success = await this.copyToClipboard(this.video.url);
+                    
+                    if (success) {
+                        this.videoCopied = true;
+                        console.log('已复制视频地址:', this.video.url);
+                        setTimeout(() => {
+                            this.videoCopied = false;
+                        }, 2000);
+                    } else {
+                        console.error('复制失败');
+                        this.showError('复制失败，请手动复制');
+                    }
+                },
+                showError(message) {
+                    this.error = message;
+                    setTimeout(() => this.error = '', 5000);
+                }
+            },
+            mounted() {
+                const savedUrl = localStorage.getItem('lastUrl');
+                if (savedUrl) {
+                    this.url = savedUrl;
+                }
+                const savedTab = localStorage.getItem('lastTab');
+                if (savedTab) {
+                    this.currentTab = savedTab;
+                }
+            },
+            watch: {
+                url(newUrl) {
+                    if (newUrl) {
+                        localStorage.setItem('lastUrl', newUrl);
+                    }
+                },
+                currentTab(newTab) {
+                    localStorage.setItem('lastTab', newTab);
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
