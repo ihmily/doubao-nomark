@@ -9,11 +9,7 @@ from pydantic import BaseModel, ConfigDict, HttpUrl
 from doubao_parser.image import doubao_image_parse
 from doubao_parser.video import doubao_video_parse
 
-app = FastAPI(
-    title="无印豆包 API",
-    description="从豆包对话链接中提取图片和视频资源",
-    version="1.0.0"
-)
+app = FastAPI(title="无印豆包 API", description="从豆包对话链接中提取图片和视频资源", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -26,12 +22,7 @@ app.add_middleware(
 
 class DouBaoRequest(BaseModel):
     model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "url": "https://www.doubao.com/thread/aef4c7a4c78c2",
-                "return_raw": False
-            }
-        }
+        json_schema_extra={"example": {"url": "https://www.doubao.com/thread/aef4c7a4c78c2", "return_raw": False}}
     )
 
     url: HttpUrl
@@ -47,10 +38,7 @@ class DouBaoResponse(BaseModel):
 class VideoRequest(BaseModel):
     model_config = ConfigDict(
         json_schema_extra={
-            "example": {
-                "url": "https://www.doubao.com/video-sharing?share_id=xxx&video_id=xxx",
-                "return_raw": False
-            }
+            "example": {"url": "https://www.doubao.com/video-sharing?share_id=xxx&video_id=xxx", "return_raw": False}
         }
     )
 
@@ -70,7 +58,7 @@ async def root():
     return {
         "message": "Doubao Parser - Extract images and videos from Doubao links",
         "docs": "/docs",
-        "version": "1.0.0"
+        "version": "1.0.0",
     }
 
 
@@ -82,26 +70,13 @@ async def parse_doubao(request: DouBaoRequest):
         if request.return_raw:
             return {"success": True, "data": result}
 
-        return DouBaoResponse(
-            success=True,
-            image_count=len(result),
-            images=result
-        )
+        return DouBaoResponse(success=True, image_count=len(result), images=result)
     except ValueError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=400, detail=str(e))
     except KeyError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail="图片解析失败，请检查链接是否正确"
-        )
+        raise HTTPException(status_code=500, detail="图片解析失败，请检查链接是否正确")
 
 
 @app.get("/parse", summary="解析豆包对话图片(GET)")
@@ -112,26 +87,13 @@ async def parse_doubao_get(url: str, return_raw: bool = False):
         if return_raw:
             return {"success": True, "data": result}
 
-        return DouBaoResponse(
-            success=True,
-            image_count=len(result),
-            images=result
-        )
+        return DouBaoResponse(success=True, image_count=len(result), images=result)
     except ValueError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=400, detail=str(e))
     except KeyError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail="图片解析失败，请检查链接是否正确"
-        )
+        raise HTTPException(status_code=500, detail="图片解析失败，请检查链接是否正确")
 
 
 @app.post("/parse-video", summary="解析豆包视频")
@@ -142,25 +104,13 @@ async def parse_video(request: VideoRequest):
         if request.return_raw:
             return {"success": True, "data": video_data}
 
-        return VideoResponse(
-            success=True,
-            video=video_data
-        )
+        return VideoResponse(success=True, video=video_data)
     except ValueError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=400, detail=str(e))
     except KeyError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail="视频解析失败，请检查链接是否正确"
-        )
+        raise HTTPException(status_code=500, detail="视频解析失败，请检查链接是否正确")
 
 
 @app.get("/parse-video", summary="解析豆包视频(GET)")
@@ -171,26 +121,14 @@ async def parse_video_get(url: str, return_raw: bool = False):
         if return_raw:
             return {"success": True, "data": video_data}
 
-        return VideoResponse(
-            success=True,
-            video=video_data
-        )
+        return VideoResponse(success=True, video=video_data)
     except ValueError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=400, detail=str(e))
     except KeyError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail="视频解析失败，请检查链接是否正确"
-        )
+        raise HTTPException(status_code=500, detail="视频解析失败，请检查链接是否正确")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

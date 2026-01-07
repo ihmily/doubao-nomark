@@ -1,0 +1,43 @@
+name: Python Lint
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'app.py'
+      - 'doubao_parser/**/*.py'
+      - '.ruff.toml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'app.py'
+      - 'doubao_parser/**/*.py'
+      - '.ruff.toml'
+  workflow_dispatch:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Ruff
+        run: |
+          pip install ruff
+
+      - name: Run Ruff Linter
+        run: |
+          ruff check app.py doubao_parser/
+
+      - name: Run Ruff Formatter Check
+        run: |
+          ruff format --check app.py doubao_parser/
