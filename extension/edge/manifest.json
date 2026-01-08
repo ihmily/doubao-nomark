@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "无印豆包 - 图片提取",
+  "name__en": "Doubao Image Extractor",
+  "version": "1.0.1",
+  "description": "在豆包对话页面提取无水印图片，支持一键下载",
+  "description__en": "Extract watermark-free images from Doubao chat pages with one-click download",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://www.doubao.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.doubao.com/thread/*",
+        "https://www.doubao.com/chat/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "homepage_url": "https://github.com/ihmily/doubao-nomark"
+}
