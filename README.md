@@ -5,7 +5,7 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/ihmily/doubao-nomark)](https://hub.docker.com/r/ihmily/doubao-nomark/tags)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-从豆包对话链接中提取无水印图片和视频资源的 API 服务
+从豆包对话链接中提取无水印图片和视频资源的 API 服务/浏览器插件。
 
 
 
@@ -191,6 +191,39 @@ video_data = await doubao_video_parse(
   }
 }
 ```
+
+## 浏览器扩展
+
+为了更方便地使用（无需服务端），本项目提供了多种浏览器扩展方案：
+
+### 油猴脚本
+
+**快速安装：** 直接访问 [Greasy Fork](https://greasyfork.org/zh-CN/scripts/561907-%E6%97%A0%E5%8D%B0%E8%B1%86%E5%8C%85-%E5%9B%BE%E7%89%87%E6%8F%90%E5%8F%96) 安装
+
+**使用步骤：**
+1. 确保已安装 [Tampermonkey](https://www.tampermonkey.net/) 或其他油猴脚本管理器
+2. 点击上方链接一键安装脚本
+3. 访问豆包网站，脚本将自动在页面上右下角添加提取按钮
+4. 点击按钮即可直接提取无水印图片
+
+### Edge 扩展
+
+**本地安装步骤：**
+
+1. 打开 Edge 浏览器，访问 `edge://extensions/`
+2. 开启右上角的 "开发人员模式"
+3. 点击 "加载解压缩的扩展"
+4. 选择项目中的 `extension/edge` 目录
+5. 扩展安装完成后，在豆包页面即可使用
+
+**使用说明：**
+
+- 点击豆包聊天界面右下角的📷按钮打开图片下载面板
+- 在豆包对话页面自动识别并提取无水印的图片资源
+
+### 插件演示
+
+![script-example](docs/images/script-example.jpg)
 
 ## Star History
 
