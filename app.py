@@ -4,12 +4,16 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, HttpUrl
 
 from doubao_parser.image import doubao_image_parse
 from doubao_parser.video import doubao_video_parse
 
 app = FastAPI(title="无印豆包 API", description="从豆包对话链接中提取图片和视频资源", version="1.0.0")
+
+if os.path.exists("icons"):
+    app.mount("/icons", StaticFiles(directory="icons"), name="icons")
 
 app.add_middleware(
     CORSMiddleware,
