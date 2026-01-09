@@ -1,11 +1,15 @@
-# 无印豆包
+<div align="center">
+  <img src="icons/logo.svg" alt="无印豆包 Logo" width="120"/>
+  <h1>无印豆包</h1>
+</div>
+<p align="center">
+  <a href="https://github.com/ihmily/doubao-nomark/stargazers"><img src="https://img.shields.io/github/stars/ihmily/doubao-nomark" alt="GitHub stars"/></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python"/></a>
+  <a href="https://hub.docker.com/r/ihmily/doubao-nomark/tags"><img src="https://img.shields.io/docker/pulls/ihmily/doubao-nomark" alt="Docker Pulls"/></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"/></a>
+</p>
 
-[![GitHub stars](https://img.shields.io/github/stars/ihmily/doubao-nomark)](https://github.com/ihmily/doubao-nomark/stargazers)
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Docker Pulls](https://img.shields.io/docker/pulls/ihmily/doubao-nomark)](https://hub.docker.com/r/ihmily/doubao-nomark/tags)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-从豆包对话链接中提取无水印图片和视频资源的 API 服务/浏览器插件。
+<p align="center">从豆包对话链接中提取无水印图片和视频资源的 API 服务/浏览器插件</p>
 
 
 
@@ -219,7 +223,7 @@ video_data = await doubao_video_parse(
 **使用说明：**
 
 - 点击豆包聊天界面右下角的📷按钮打开图片下载面板
-- 在豆包对话页面自动识别并提取无水印的图片资源
+- 在豆包对话页面自动识别并提取无水印的图片资源**（插件不支持视频）**
 
 ### 插件演示
 
