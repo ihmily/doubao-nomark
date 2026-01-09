@@ -1,6 +1,5 @@
 // ==UserScript==
 // @name         无印豆包 - 图片提取
-// @name:en      Doubao Image Extractor
 // @namespace    http://tampermonkey.net/
 // @version      1.0.1
 // @description  在豆包对话页面提取无水印图片
