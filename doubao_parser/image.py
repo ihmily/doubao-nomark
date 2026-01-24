@@ -21,29 +21,33 @@ async def doubao_image_parse(url: str, return_raw: bool = False):
     except httpx.RequestError as e:
         raise ValueError(f"网络请求失败，请检查网络连接: {str(e)}")
 
-    match_json_str = re.search("_ROUTER_DATA = (.*?);\\nfunction runWindowFn", html_str, re.DOTALL)
+    match_json_str = re.search(
+        'script-src="modern-run-router-data-fn" data-fn-args="(.*?)" nonce="', html_str, re.DOTALL
+    )
 
     if not match_json_str:
         raise KeyError("无法解析页面数据，请确认链接是否有效")
 
     try:
-        json_str = match_json_str.group(1)
+        json_str = match_json_str.group(1).replace("&quot;", '"')
         json_data = json.loads(json_str)
 
         if return_raw:
             return json_data
 
         image_list = []
-        message_snapshot = json_data["loaderData"]["thread_(token)/page"]["data"]["message_snapshot"]["message_list"]
-
-        for message in message_snapshot:
-            for m2 in message["content_block"]:
-                json_data2 = json.loads(m2["content_v2"])
-                if "creation_block" in json_data2:
-                    creations = json_data2["creation_block"]["creations"]
-                    for image in creations:
-                        image_raw = image["image"]["image_ori_raw"]
-                        image_list.append(image_raw)
+        for data in json_data:
+            if isinstance(data, dict) and data.get("data"):
+                message_snapshot = data["data"]["message_snapshot"]["message_list"]
+                for message in message_snapshot:
+                    for m2 in message["content_block"]:
+                        json_data2 = json.loads(m2["content_v2"])
+                        if "creation_block" in json_data2:
+                            creations = json_data2["creation_block"]["creations"]
+                            for image in creations:
+                                image_raw = image["image"]["image_ori_raw"]
+                                image_raw["url"] = image_raw["url"].replace("&amp;", "&")
+                                image_list.append(image_raw)
     except KeyError as e:
         print(f"Exception: {e}")
         raise KeyError("页面结构发生变化，无法解析图片数据")
