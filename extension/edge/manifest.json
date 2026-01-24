@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "无印豆包 - 图片提取",
   "name__en": "Doubao Image Extractor",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "在豆包对话页面提取无水印图片，支持一键下载",
   "description__en": "Extract watermark-free images from Doubao chat pages with one-click download",
   "icons": {

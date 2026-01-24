@@ -1,6 +1,6 @@
 [project]
 name = "doubao_parser"
-version = "1.0.0"
+version = "1.0.2"
 description = "Doubao Parser - Extract images and videos from Doubao links"
 readme = "README.md"
 requires-python = ">=3.10"

@@ -217,71 +217,126 @@
             return chatImages;
         }
         
-        if (!window._ROUTER_DATA) {
-            console.error('[无印豆包] 未找到 _ROUTER_DATA 数据');
-            return [];
-        }
-
         try {
             const imageList = [];
-            const loaderData = window._ROUTER_DATA.loaderData;
             
-            let messageSnapshot = null;
-            
-            if (loaderData?.["thread_(token)/page"]?.data?.message_snapshot?.message_list) {
-                messageSnapshot = loaderData["thread_(token)/page"].data.message_snapshot.message_list;
-            } else if (loaderData?.["routes/thread_(token)/page"]?.data?.message_snapshot?.message_list) {
-                messageSnapshot = loaderData["routes/thread_(token)/page"].data.message_snapshot.message_list;
-            } else if (loaderData?.["thread/page"]?.data?.message_snapshot?.message_list) {
-                messageSnapshot = loaderData["thread/page"].data.message_snapshot.message_list;
-            }
-
-            if (!messageSnapshot) {
-                console.error('[无印豆包] 消息数据结构不正确，loaderData 结构:', loaderData);
-                return [];
-            }
-
-            console.log('[无印豆包] 找到消息列表，共', messageSnapshot.length, '条消息');
-
-            for (const message of messageSnapshot) {
-                for (const block of message.content_block || []) {
-                    try {
-                        const contentData = JSON.parse(block.content_v2);
-                        if (contentData.creation_block?.creations) {
-                            for (const creation of contentData.creation_block.creations) {
-                                const imageData = creation.image?.image_ori_raw;
-                                if (imageData) {
-                                    let imageUrl = '';
-                                    let width = 0;
-                                    let height = 0;
-                                    
-                                    if (typeof imageData === 'string') {
-                                        imageUrl = imageData;
-                                    } else if (typeof imageData === 'object' && imageData.url) {
-                                        imageUrl = imageData.url;
-                                        width = imageData.width || 0;
-                                        height = imageData.height || 0;
-                                    }
-                                    
-                                    if (imageUrl) {
-                                        imageList.push({
-                                            url: imageUrl,
-                                            width: width,
-                                            height: height
-                                        });
-                                        console.log('[无印豆包] 找到图片:', imageUrl, `${width} × ${height}`);
+            const scriptElement = document.querySelector('script[data-script-src="modern-run-router-data-fn"]');
+            if (scriptElement) {
+                const dataFnArgs = scriptElement.getAttribute('data-fn-args');
+                if (dataFnArgs) {
+                    const jsonStr = dataFnArgs.replace(/&quot;/g, '"');
+                    const jsonData = JSON.parse(jsonStr);
+                    
+                    for (const data of jsonData) {
+                        if (typeof data === 'object' && data?.data?.message_snapshot?.message_list) {
+                            const messageSnapshot = data.data.message_snapshot.message_list;
+                            console.log('[无印豆包] 找到消息列表，共', messageSnapshot.length, '条消息');
+                            
+                            for (const message of messageSnapshot) {
+                                for (const block of message.content_block || []) {
+                                    try {
+                                        const contentData = JSON.parse(block.content_v2);
+                                        if (contentData.creation_block?.creations) {
+                                            for (const creation of contentData.creation_block.creations) {
+                                                const imageData = creation.image?.image_ori_raw;
+                                                if (imageData) {
+                                                    let imageUrl = '';
+                                                    let width = 0;
+                                                    let height = 0;
+                                                    
+                                                    if (typeof imageData === 'string') {
+                                                        imageUrl = imageData;
+                                                    } else if (typeof imageData === 'object' && imageData.url) {
+                                                        imageUrl = imageData.url.replace(/&amp;/g, '&');
+                                                        width = imageData.width || 0;
+                                                        height = imageData.height || 0;
+                                                    }
+                                                    
+                                                    if (imageUrl && !imageList.find(img => img.url === imageUrl)) {
+                                                        imageList.push({
+                                                            url: imageUrl,
+                                                            width: width,
+                                                            height: height
+                                                        });
+                                                        console.log('[无印豆包] 找到图片:', imageUrl, `${width} × ${height}`);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } catch (e) {
+                                        continue;
                                     }
                                 }
                             }
                         }
-                    } catch (e) {
-                        continue;
                     }
+                    
+                    console.log('[无印豆包] 提取完成，共找到', imageList.length, '张图片');
+                    return imageList;
                 }
             }
+            
+            // 旧方法：兼容旧版页面结构
+            if (window._ROUTER_DATA) {
+                const loaderData = window._ROUTER_DATA.loaderData;
+                
+                let messageSnapshot = null;
+                
+                if (loaderData?.["thread_(token)/page"]?.data?.message_snapshot?.message_list) {
+                    messageSnapshot = loaderData["thread_(token)/page"].data.message_snapshot.message_list;
+                } else if (loaderData?.["routes/thread_(token)/page"]?.data?.message_snapshot?.message_list) {
+                    messageSnapshot = loaderData["routes/thread_(token)/page"].data.message_snapshot.message_list;
+                } else if (loaderData?.["thread/page"]?.data?.message_snapshot?.message_list) {
+                    messageSnapshot = loaderData["thread/page"].data.message_snapshot.message_list;
+                }
 
-            console.log('[无印豆包] 提取完成，共找到', imageList.length, '张图片');
-            return imageList;
+                if (messageSnapshot) {
+                    console.log('[无印豆包] 找到消息列表，共', messageSnapshot.length, '条消息');
+
+                    for (const message of messageSnapshot) {
+                        for (const block of message.content_block || []) {
+                            try {
+                                const contentData = JSON.parse(block.content_v2);
+                                if (contentData.creation_block?.creations) {
+                                    for (const creation of contentData.creation_block.creations) {
+                                        const imageData = creation.image?.image_ori_raw;
+                                        if (imageData) {
+                                            let imageUrl = '';
+                                            let width = 0;
+                                            let height = 0;
+                                            
+                                            if (typeof imageData === 'string') {
+                                                imageUrl = imageData;
+                                            } else if (typeof imageData === 'object' && imageData.url) {
+                                                imageUrl = imageData.url;
+                                                width = imageData.width || 0;
+                                                height = imageData.height || 0;
+                                            }
+                                            
+                                            if (imageUrl && !imageList.find(img => img.url === imageUrl)) {
+                                                imageList.push({
+                                                    url: imageUrl,
+                                                    width: width,
+                                                    height: height
+                                                });
+                                                console.log('[无印豆包] 找到图片:', imageUrl, `${width} × ${height}`);
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (e) {
+                                continue;
+                            }
+                        }
+                    }
+
+                    console.log('[无印豆包] 提取完成，共找到', imageList.length, '张图片');
+                    return imageList;
+                }
+            }
+            
+            console.error('[无印豆包] 未找到任何可用的数据源');
+            return [];
         } catch (error) {
             console.error('[无印豆包] 提取图片失败:', error);
             return [];
@@ -766,14 +821,17 @@
             return;
         }
         
-        if (!window._ROUTER_DATA) {
+        const hasScriptData = !!document.querySelector('script[data-script-src="modern-run-router-data-fn"]');
+        const hasRouterData = !!window._ROUTER_DATA;
+        
+        if (!hasScriptData && !hasRouterData) {
             initRetryCount++;
             if (initRetryCount < MAX_RETRY) {
-                console.warn(`[无印豆包] _ROUTER_DATA 仍未加载，等待中... (${initRetryCount}/${MAX_RETRY})`);
+                console.warn(`[无印豆包] 页面数据仍未加载，等待中... (${initRetryCount}/${MAX_RETRY})`);
                 setTimeout(initScript, 500);
                 return;
             } else {
-                console.warn('[无印豆包] _ROUTER_DATA 加载超时，仍创建按钮（thread 页面可能无法提取历史图片）');
+                console.warn('[无印豆包] 页面数据加载超时，仍创建按钮（可能无法提取历史图片）');
             }
         }
         
