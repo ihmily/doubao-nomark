@@ -40,6 +40,9 @@ async def doubao_image_parse(url: str, return_raw: bool = False):
             if isinstance(data, dict) and data.get("data"):
                 message_snapshot = data["data"]["message_snapshot"]["message_list"]
                 for message in message_snapshot:
+                    if not message.get("content_block"):
+                        continue
+
                     for m2 in message["content_block"]:
                         json_data2 = json.loads(m2["content_v2"])
                         if "creation_block" in json_data2:
