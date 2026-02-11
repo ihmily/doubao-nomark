@@ -36,8 +36,6 @@
                     if (messages && Array.isArray(messages)) {
                         console.log('[无印豆包] 开始解析 messages，数量:', messages.length);
                         parseChatImages(messages);
-                    } else {
-                        console.warn('[无印豆包] messages 不是数组或不存在');
                     }
                 } catch (e) {
                     console.error('[无印豆包] XHR 解析聊天数据失败:', e);
@@ -73,12 +71,15 @@
                             if (line.startsWith('data: ')) {
                                 try {
                                     const jsonStr = line.substring(6);
-                                    const data = JSON.parse(jsonStr);
-                                    if (data.event_data) {
-                                        parseStreamChunk(data);
+                                    if (jsonStr.includes('image_ori')) {
+                                        const data = JSON.parse(jsonStr);
+                                        if (data.event_data || data.patch_op) {
+                                            parseStreamChunk(data);
+                                        }
                                     }
                                 } catch (e) {
                                     console.log('[无印豆包] 解析行失败:', e.message);
+                                    console.log('[无印豆包] 解析行失败:', line);
                                 }
                             }
                         }
@@ -103,35 +104,91 @@
 
     function parseStreamChunk(data) {
         try {
-            if (!data.event_data) {
+            if (!data.event_data && !data.patch_op) {
                 return;
             }
-            
-            let eventData;
-            try {
-                eventData = JSON.parse(data.event_data);
-            } catch (e) {
-                console.log('[无印豆包] 解析 event_data 失败:', e);
-                return;
+
+            if (data.patch_op) {
+
+                var creations = [];
+
+                for (const op of data.patch_op) {
+                    if (
+                        op.patch_value &&
+                        Array.isArray(op.patch_value.content_block)
+                    ) {
+                        for (const block of op.patch_value.content_block) {
+                            if (
+                                block?.content?.creation_block &&
+                                Array.isArray(block.content.creation_block.creations)
+                            ) {
+                                creations = block.content.creation_block.creations;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (creations.length === 0) {
+                    const extPatch = data.patch_op.find(op =>
+                        op.patch_value &&
+                        typeof op.patch_value === 'object' &&
+                        op.patch_value.ext?.creation_full_content
+                    );
+
+                    if (extPatch) {
+                        try {
+                            const creationFullContent = extPatch.patch_value.ext.creation_full_content;
+                            const creationFullContent_obj = JSON.parse(creationFullContent);
+
+                            for (const item of creationFullContent_obj) {
+                                const content = item?.BlockInfo?.BlockContent?.content;
+                                if (
+                                    content &&
+                                    typeof content === 'object' &&
+                                    content.creation_block &&
+                                    Array.isArray(content.creation_block.creations)
+                                ) {
+                                    creations = content.creation_block.creations;
+                                    break;
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('Failed to parse creation_full_content:', e);
+                        }
+                    }
+                }
+
+            }else{
+                let eventData;
+                try {
+                    eventData = JSON.parse(data.event_data);
+                } catch (e) {
+                    console.log('[无印豆包] 解析 event_data 失败:', e);
+                    return;
+                }
+                
+                if (!eventData.message?.content) {
+                    return;
+                }
+                
+                let messageContent;
+                try {
+                    messageContent = JSON.parse(eventData.message.content);
+                } catch (e) {
+                    console.log('[无印豆包] 解析 message.content 失败:', e);
+                    return;
+                }
+                if (!messageContent.creations || !Array.isArray(messageContent.creations)) {
+                    return;
+                }
+
+                var creations = messageContent.creations;
             }
             
-            if (!eventData.message?.content) {
-                return;
-            }
+
             
-            let messageContent;
-            try {
-                messageContent = JSON.parse(eventData.message.content);
-            } catch (e) {
-                console.log('[无印豆包] 解析 message.content 失败:', e);
-                return;
-            }
-            
-            if (!messageContent.creations || !Array.isArray(messageContent.creations)) {
-                return;
-            }
-            
-            for (const creation of messageContent.creations) {
+            for (const creation of creations) {
                 const imageData = creation.image?.image_ori_raw;
                 if (imageData) {
                     let imageUrl = '';
@@ -162,45 +219,43 @@
         if (!Array.isArray(messages)) return;
         
         const newImages = [];
-        
-        for (const msg of messages) {
-            const contentStr = msg.content;
-            if (!contentStr || typeof contentStr !== 'string') continue;
-            
-            try {
-                const contentArray = JSON.parse(contentStr);
-                if (!Array.isArray(contentArray)) continue;
-                
-                for (const item of contentArray) {
-                    const creationBlock = item?.content?.creation_block;
-                    if (!creationBlock?.creations) continue;
-                    
-                    for (const creation of creationBlock.creations) {
-                        const imageData = creation.image?.image_ori_raw;
-                        if (imageData) {
-                            let imageUrl = '';
-                            let width = 0;
-                            let height = 0;
-                            
-                            if (typeof imageData === 'string') {
-                                imageUrl = imageData;
-                            } else if (typeof imageData === 'object' && imageData.url) {
-                                imageUrl = imageData.url;
-                                width = imageData.width || 0;
-                                height = imageData.height || 0;
-                            }
-                            
-                            if (imageUrl && !newImages.find(img => img.url === imageUrl)) {
-                                newImages.push({ url: imageUrl, width, height });
-                                console.log('[无印豆包] 找到图片:', imageUrl, `${width} × ${height}`);
+
+        try {
+            for (const item of messages) {
+                try {
+                    for (const content of item.content_block) {
+                        const creationBlock = content.content?.creation_block;
+                        if (!creationBlock || !Array.isArray(creationBlock.creations)) continue;
+                        for (const creation of creationBlock.creations) {
+                            const imageData = creation.image?.image_ori_raw;
+                            if (imageData) {
+                                let imageUrl = '';
+                                let width = 0;
+                                let height = 0;
+                                
+                                if (typeof imageData === 'string') {
+                                    imageUrl = imageData;
+                                } else if (typeof imageData === 'object' && imageData.url) {
+                                    imageUrl = imageData.url;
+                                    width = imageData.width || 0;
+                                    height = imageData.height || 0;
+                                }
+                                
+                                if (imageUrl && !newImages.find(img => img.url === imageUrl)) {
+                                    newImages.push({ url: imageUrl, width, height });
+                                    console.log('[无印豆包] 找到图片:', imageUrl, `${width} × ${height}`);
+                                }
                             }
                         }
                     }
+                    
+                } catch (e) {
+                    console.log('[无印豆包] 解析消息失败:', e);
+                    continue;
                 }
-            } catch (e) {
-                console.log('[无印豆包] 解析消息失败:', e);
-                continue;
             }
+        } catch (e) {
+            console.log('[无印豆包] 解析消息失败:', e);
         }
         
         if (newImages.length > 0) {
@@ -279,7 +334,7 @@
             // 旧方法：兼容旧版页面结构
             if (window._ROUTER_DATA) {
                 const loaderData = window._ROUTER_DATA.loaderData;
-                
+                console.log('[无印豆包] 尝试从页面元素中提取图片：', loaderData);
                 let messageSnapshot = null;
                 
                 if (loaderData?.["thread_(token)/page"]?.data?.message_snapshot?.message_list) {
@@ -289,7 +344,7 @@
                 } else if (loaderData?.["thread/page"]?.data?.message_snapshot?.message_list) {
                     messageSnapshot = loaderData["thread/page"].data.message_snapshot.message_list;
                 }
-
+                console.log('[无印豆包] 尝试从页面元素中提取图片2：', messageSnapshot);
                 if (messageSnapshot) {
                     console.log('[无印豆包] 找到消息列表，共', messageSnapshot.length, '条消息');
 
