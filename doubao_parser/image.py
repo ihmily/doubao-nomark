@@ -22,7 +22,7 @@ async def doubao_image_parse(url: str, return_raw: bool = False):
         raise ValueError(f"网络请求失败，请检查网络连接: {str(e)}")
 
     match_json_str = re.search(
-        'script-src="modern-run-router-data-fn" data-fn-args="(.*?)" nonce="', html_str, re.DOTALL
+        'data-script-src="modern-run-router-data-fn" data-fn-args="(.*?)" nonce="', html_str, re.DOTALL
     )
 
     if not match_json_str:
