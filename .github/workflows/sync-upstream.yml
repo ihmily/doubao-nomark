@@ -1,0 +1,48 @@
+name: Sync upstream and open PR
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout current repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream
+        run: |
+          git remote add upstream https://github.com/ihmily/doubao-nomark.git || true
+          git fetch origin
+          git fetch upstream
+
+      - name: Update upstream-sync branch
+        run: |
+          git checkout -B upstream-sync
+          git merge upstream/main --no-edit || true
+          git push origin upstream-sync --force
+
+      - name: Create pull request to main
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: sync upstream"
+          title: "Sync upstream changes"
+          body: "Automated upstream sync from ihmily/doubao-nomark"
+          branch: auto/sync-upstream-to-main
+          base: main
+          delete-branch: true
