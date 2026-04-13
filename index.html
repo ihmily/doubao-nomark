@@ -121,43 +121,6 @@
             transition: border-color 0.2s;
         }
 
-        .input-with-clear {
-            position: relative;
-            flex: 1;
-        }
-
-        .input-with-clear .input-field {
-            width: 100%;
-            padding-right: 36px;
-        }
-
-        .clear-btn {
-            position: absolute;
-            right: 8px;
-            top: 50%;
-            transform: translateY(-50%);
-            width: 20px;
-            height: 20px;
-            border: none;
-            background: #d0d0d0;
-            color: #ffffff;
-            border-radius: 50%;
-            font-size: 14px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.2s;
-        }
-
-        .clear-btn:hover {
-            background: #a0a0a0;
-        }
-
-        .clear-btn.hidden {
-            display: none;
-        }
-
         .input-field:focus {
             outline: none;
             border-color: #1f1f1f;
@@ -662,26 +625,15 @@
                 </div>
 
                 <div class="input-group">
-                    <div class="input-with-clear">
-                        <input
-                            v-model="url"
-                            type="text"
-                            class="input-field"
-                            :placeholder="currentTab === 'image' ? '输入包含图片的豆包对话分享链接，例如：https://www.doubao.com/thread/xxxxx' : '输入豆包或者云雀视频分享链接，例如：https://www.doubao.com/video-sharing?share_id=xxx&video_id=xxx'"
-                            @keyup.enter="parseUrl"
-                            @input="toggleClearBtn"
-                        >
-                        <button
-                            class="clear-btn"
-                            :class="{ hidden: !url }"
-                            @click="clearInput"
-                            type="button"
-                        >
-                            ×
-                        </button>
-                    </div>
-                    <button
-                        class="btn btn-primary"
+                    <input 
+                        v-model="url" 
+                        type="text" 
+                        class="input-field" 
+                        :placeholder="currentTab === 'image' ? '输入包含图片的豆包对话分享链接，例如：https://www.doubao.com/thread/xxxxx' : '输入豆包或者云雀视频分享链接，例如：https://www.doubao.com/video-sharing?share_id=xxx&video_id=xxx'"
+                        @keyup.enter="parseUrl"
+                    >
+                    <button 
+                        class="btn btn-primary" 
                         @click="parseUrl"
                         :disabled="loading || !url"
                     >
@@ -989,12 +941,6 @@
                 showError(message) {
                     this.error = message;
                     setTimeout(() => this.error = '', 5000);
-                },
-                clearInput() {
-                    this.url = '';
-                },
-                toggleClearBtn() {
-                    // 这个方法会在输入时触发，Vue的响应式系统会自动处理显示/隐藏
                 }
             },
             mounted() {
