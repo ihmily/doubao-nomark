@@ -3,7 +3,6 @@
 
     console.log('%c[无印豆包] 脚本开始执行', 'color: #667eea; font-size: 14px; font-weight: bold');
     console.log('[无印豆包] 当前 URL:', window.location.href);
-    console.log('[无印豆包] document.readyState:', document.readyState);
 
     let chatImages = [];
     let floatingBtnElement = null;
@@ -50,6 +49,81 @@
     const originalFetch = window.fetch;
     window.fetch = async function(...args) {
         const url = args[0];
+        
+        if (url && (typeof url === 'string') && url.includes('qianwen.com/api/v1/session/msg/list')) {
+            console.log('[无印豆包] 检测到千问 session msg list 请求:', url);
+            const response = await originalFetch.apply(this, args);
+            response.clone().json().then(data => {
+                const chats = data.data?.list || [];
+                for (const chat of chats) {
+                    const messages = chat?.response_messages || [];
+                    parseQianwenMessages(messages);
+                }
+            }).catch(() => {});
+            return response;
+        }
+
+        if (url && (typeof url === 'string') && url.includes('qianwen.com/api/v1/share/info')) {
+            console.log('[无印豆包] 检测到千问 share chat 请求:', url);
+            const response = await originalFetch.apply(this, args);
+            response.clone().json().then(data => {
+                const chats = data.data.session?.record_list || [];
+                for (const chat of chats) {
+                    const messages = chat?.response_messages || [];
+                    parseQianwenMessages(messages);
+                }
+            }).catch(() => {});
+            return response;
+        }
+
+        if (url && (typeof url === 'string') && url.includes('qianwen.com/api/v1/chat/snap')) {
+            console.log('[无印豆包] 检测到千问 EventStream 请求:', url);
+            
+            const response = await originalFetch.apply(this, args);
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            
+            const stream = new ReadableStream({
+                async start(controller) {
+                    let buffer = '';
+                    let waitingForData = false;
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        buffer += decoder.decode(value, { stream: true });
+                        
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop();
+                        
+                        for (const line of lines) {
+                            if (line.trimEnd() === 'event:complete') {
+                                waitingForData = true;
+                            } else if (waitingForData && line.startsWith('data:')) {
+                                waitingForData = false;
+                                try {
+                                    const jsonStr = line.substring(5).trim();
+                                    const data = JSON.parse(jsonStr);
+                                    parseQianwenMessages(data?.data?.messages);
+                                } catch (e) {
+                                    console.warn('[无印豆包][千问] data 行解析失败:', e.message);
+                                }
+                            } else if (line.trim() === '') {
+                                waitingForData = false;
+                            }
+                        }
+                        
+                        controller.enqueue(value);
+                    }
+                    controller.close();
+                }
+            });
+            
+            return new Response(stream, {
+                headers: response.headers,
+                status: response.status,
+                statusText: response.statusText
+            });
+        }
         
         if (url && url.includes('/chat/completion')) {
             console.log('[无印豆包] 检测到 EventStream 请求:', url);
@@ -102,6 +176,36 @@
     
     console.log('[无印豆包] Fetch 拦截已安装');
 
+    function parseQianwenMessages(messages) {
+        if (!Array.isArray(messages)) {
+            return;
+        }
+        for (const message of messages) {
+            if (message?.mime_type !== 'multi_load/iframe') continue;
+            const multiLoad = message?.meta_data?.multi_load;
+            if (!Array.isArray(multiLoad)) {
+                continue;
+            }
+            for (const item of multiLoad) {
+                const displayList = item?.content?.display_list;
+                if (!Array.isArray(displayList)) {
+                    continue;
+                }
+                for (const display of displayList) {
+                    const imageObj = display?.image?.[0];
+                    if (!imageObj?.url) continue;
+                    const { url, width = 0, height = 0 } = imageObj;
+                    if (!chatImages.find(img => img.url === url)) {
+                        chatImages.push({ url, width, height });
+                        console.log('[无印豆包][千问] 获取到图片:', url, `${width} × ${height}`);
+                        updateButtonCount();
+                    }
+                }
+            }
+        }
+    }
+
+    
     function parseStreamChunk(data) {
         try {
             if (!data.event_data && !data.patch_op) {
@@ -210,6 +314,8 @@
                     }
                 }
             }
+            
+            console.log('[无印豆包][千问] 聊天界面，返回已缓存的', chatImages.length, '张图片');
         } catch (e) {
             console.error('[无印豆包] 解析 StreamChunk 失败:', e);
         }
@@ -267,8 +373,10 @@
 
     function extractImages() {
         
-        if (window.location.pathname.includes('/chat/')) {
-            console.log('[无印豆包] 聊天界面，返回已缓存的', chatImages.length, '张图片');
+        if (window.location.hostname.includes('doubao.com') && window.location.pathname.includes('/chat/')) {
+            console.log('[无印豆包] 豆包聊天界面，返回已缓存的', chatImages.length, '张图片');
+            return chatImages;
+        } else if (window.location.hostname.includes('qianwen.com') && window.location.pathname.includes('/chat/')) {
             return chatImages;
         }
         
