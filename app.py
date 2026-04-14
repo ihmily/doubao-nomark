@@ -7,10 +7,10 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, HttpUrl
 
-from doubao_parser.image import doubao_image_parse
+from doubao_parser.image import doubao_image_parse, qianwen_image_parse
 from doubao_parser.video import doubao_video_parse, yunque_video_parse
 
-app = FastAPI(title="无印豆包 API", description="从豆包对话链接中提取图片和视频资源", version="1.0.0")
+app = FastAPI(title="无印豆包 API", description="从豆包|千问对话链接中提取图片和视频资源", version="1.0.4")
 
 if os.path.exists("icons"):
     app.mount("/icons", StaticFiles(directory="icons"), name="icons")
@@ -62,14 +62,17 @@ async def root():
     return {
         "message": "Doubao Parser - Extract images and videos from Doubao links",
         "docs": "/docs",
-        "version": "1.0.0",
+        "version": "1.0.4",
     }
 
 
-@app.post("/parse", summary="解析豆包对话图片")
+@app.post("/parse", summary="解析豆包|千问对话图片")
 async def parse_doubao(request: DouBaoRequest):
     try:
-        result = await doubao_image_parse(str(request.url), return_raw=request.return_raw)
+        if "doubao.com" in str(request.url):
+            result = await doubao_image_parse(str(request.url), return_raw=request.return_raw)
+        else:
+            result = await qianwen_image_parse(str(request.url), return_raw=request.return_raw)
 
         if request.return_raw:
             return {"success": True, "data": result}
@@ -84,10 +87,13 @@ async def parse_doubao(request: DouBaoRequest):
         raise HTTPException(status_code=500, detail="图片解析失败，请检查链接是否正确")
 
 
-@app.get("/parse", summary="解析豆包对话图片(GET)")
+@app.get("/parse", summary="解析豆包|千问对话图片(GET)")
 async def parse_doubao_get(url: str, return_raw: bool = False):
     try:
-        result = await doubao_image_parse(url, return_raw=return_raw)
+        if "doubao.com" in url:
+            result = await doubao_image_parse(url, return_raw=return_raw)
+        else:
+            result = await qianwen_image_parse(url, return_raw=return_raw)
 
         if return_raw:
             return {"success": True, "data": result}

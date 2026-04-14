@@ -635,7 +635,7 @@
                     已提取 <span>1</span> 个视频
                 </div>
             </div>
-            <p>一键提取豆包对话中的高清图片和视频，无水印、无压缩</p>
+            <p>一键提取豆包/千问对话中的高清图片和视频，无水印、无压缩</p>
         </div>
 
         <div class="main-card">
@@ -667,7 +667,7 @@
                             v-model="url"
                             type="text"
                             class="input-field"
-                            :placeholder="currentTab === 'image' ? '输入包含图片的豆包对话分享链接，例如：https://www.doubao.com/thread/xxxxx' : '输入豆包或者云雀视频分享链接，例如：https://www.doubao.com/video-sharing?share_id=xxx&video_id=xxx'"
+                            :placeholder="currentTab === 'image' ? '输入包含图片的豆包/千问对话分享链接，例如：https://www.doubao.com/thread/xxxxx' : '输入豆包或者云雀视频分享链接，例如：https://www.doubao.com/video-sharing?share_id=xxx&video_id=xxx'"
                             @keyup.enter="parseUrl"
                             @input="toggleClearBtn"
                         >
@@ -993,9 +993,7 @@
                 clearInput() {
                     this.url = '';
                 },
-                toggleClearBtn() {
-                    // 这个方法会在输入时触发，Vue的响应式系统会自动处理显示/隐藏
-                }
+                toggleClearBtn() {}
             },
             mounted() {
                 const savedUrl = localStorage.getItem('lastUrl');

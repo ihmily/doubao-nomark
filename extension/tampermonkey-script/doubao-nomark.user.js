@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         无印豆包 - 图片提取
 // @namespace    http://tampermonkey.net/
-// @version      1.0.3
+// @version      1.0.4
 // @description  在豆包对话页面提取无水印图片
 // @description:en Extract watermark-free images from Doubao chat pages with one-click download
 // @author       无印豆包
@@ -11,6 +11,8 @@
 // @downloadURL  https://github.com/ihmily/doubao-nomark/raw/main/doubao-nomark.user.js
 // @match        https://www.doubao.com/thread/*
 // @match        https://www.doubao.com/chat/*
+// @match        https://www.qianwen.com/chat/*
+// @match        https://www.qianwen.com/share/chat/*
 // @grant        none
 // @license      MIT
 // @run-at       document-end
@@ -22,7 +24,6 @@
 
     console.log('%c[无印豆包] 脚本开始执行', 'color: #667eea; font-size: 14px; font-weight: bold');
     console.log('[无印豆包] 当前 URL:', window.location.href);
-    console.log('[无印豆包] document.readyState:', document.readyState);
 
     let chatImages = [];
     let floatingBtnElement = null;
@@ -76,7 +77,81 @@
     const originalFetch = window.fetch;
     window.fetch = async function(...args) {
         const url = args[0];
-        // console.log('[无印豆包] Fetch 请求:', url);
+
+        if (url && (typeof url === 'string') && url.includes('qianwen.com/api/v1/session/msg/list')) {
+            console.log('[无印豆包] 检测到千问 session msg list 请求:', url);
+            const response = await originalFetch.apply(this, args);
+            response.clone().json().then(data => {
+                const chats = data.data?.list || [];
+                for (const chat of chats) {
+                    const messages = chat?.response_messages || [];
+                    parseQianwenMessages(messages);
+                }
+            }).catch(() => {});
+            return response;
+        }
+
+        if (url && (typeof url === 'string') && url.includes('qianwen.com/api/v1/share/info')) {
+            console.log('[无印豆包] 检测到千问 share chat 请求:', url);
+            const response = await originalFetch.apply(this, args);
+            response.clone().json().then(data => {
+                const chats = data.data.session?.record_list || [];
+                for (const chat of chats) {
+                    const messages = chat?.response_messages || [];
+                    parseQianwenMessages(messages);
+                }
+            }).catch(() => {});
+            return response;
+        }
+
+        if (url && (typeof url === 'string') && url.includes('qianwen.com/api/v1/chat/snap')) {
+            console.log('[无印豆包] 检测到千问 EventStream 请求:', url);
+            
+            const response = await originalFetch.apply(this, args);
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            
+            const stream = new ReadableStream({
+                async start(controller) {
+                    let buffer = '';
+                    let waitingForData = false;
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        buffer += decoder.decode(value, { stream: true });
+                        
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop();
+                        
+                        for (const line of lines) {
+                            if (line.trimEnd() === 'event:complete') {
+                                waitingForData = true;
+                            } else if (waitingForData && line.startsWith('data:')) {
+                                waitingForData = false;
+                                try {
+                                    const jsonStr = line.substring(5).trim();
+                                    const data = JSON.parse(jsonStr);
+                                    parseQianwenMessages(data?.data?.messages);
+                                } catch (e) {
+                                    console.warn('[无印豆包][千问] data 行解析失败:', e.message);
+                                }
+                            } else if (line.trim() === '') {
+                                waitingForData = false;
+                            }
+                        }
+                        
+                        controller.enqueue(value);
+                    }
+                    controller.close();
+                }
+            });
+            
+            return new Response(stream, {
+                headers: response.headers,
+                status: response.status,
+                statusText: response.statusText
+            });
+        }
         
         if (url && url.includes('/chat/completion')) {
             console.log('[无印豆包] ✨ 检测到 EventStream 请求:', url);
@@ -129,6 +204,35 @@
     };
     
     console.log('[无印豆包] Fetch 拦截已安装');
+
+    function parseQianwenMessages(messages) {
+        if (!Array.isArray(messages)) {
+            return;
+        }
+        for (const message of messages) {
+            if (message?.mime_type !== 'multi_load/iframe') continue;
+            const multiLoad = message?.meta_data?.multi_load;
+            if (!Array.isArray(multiLoad)) {
+                continue;
+            }
+            for (const item of multiLoad) {
+                const displayList = item?.content?.display_list;
+                if (!Array.isArray(displayList)) {
+                    continue;
+                }
+                for (const display of displayList) {
+                    const imageObj = display?.image?.[0];
+                    if (!imageObj?.url) continue;
+                    const { url, width = 0, height = 0 } = imageObj;
+                    if (!chatImages.find(img => img.url === url)) {
+                        chatImages.push({ url, width, height });
+                        console.log('[无印豆包][千问] 获取到图片:', url, `${width} × ${height}`);
+                        updateButtonCount();
+                    }
+                }
+            }
+        }
+    }
 
     function parseStreamChunk(data) {
         try {
@@ -295,8 +399,10 @@
 
     function extractImages() {
         
-        if (window.location.pathname.includes('/chat/')) {
-            console.log('[无印豆包] 聊天界面，返回已缓存的', chatImages.length, '张图片');
+        if (window.location.hostname.includes('doubao.com') && window.location.pathname.includes('/chat/')) {
+            console.log('[无印豆包] 豆包聊天界面，返回已缓存的', chatImages.length, '张图片');
+            return chatImages;
+        } else if (window.location.hostname.includes('qianwen.com') && window.location.pathname.includes('/chat/')) {
             return chatImages;
         }
         
@@ -893,6 +999,9 @@
         updateImageCount();
     }
 
+    let initRetryCount = 0;
+    const MAX_RETRY = 10;
+
     function initScript() {
         console.log('[无印豆包] 脚本已加载');
         
@@ -903,10 +1012,16 @@
         
         const hasScriptData = !!document.querySelector('script[data-script-src="modern-run-router-data-fn"]');
         const hasRouterData = !!window._ROUTER_DATA;
+        
         if (!hasScriptData && !hasRouterData) {
-            console.warn('[无印豆包] 页面数据仍未加载，等待中...');
-            setTimeout(initScript, 1000);
-            return;
+            initRetryCount++;
+            if (initRetryCount < MAX_RETRY) {
+                console.warn(`[无印豆包] 页面数据仍未加载，等待中... (${initRetryCount}/${MAX_RETRY})`);
+                setTimeout(initScript, 500);
+                return;
+            } else {
+                console.warn('[无印豆包] 页面数据加载超时，仍创建按钮（可能无法提取历史图片）');
+            }
         }
         
         createFloatingButton();
@@ -914,6 +1029,12 @@
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', initScript);
+    } else if (document.readyState === 'interactive') {
+        if (document.body) {
+            initScript();
+        } else {
+            document.addEventListener('DOMContentLoaded', initScript);
+        }
     } else {
         initScript();
     }

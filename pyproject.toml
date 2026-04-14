@@ -1,7 +1,7 @@
 [project]
 name = "doubao_parser"
-version = "1.0.3"
-description = "Doubao Parser - Extract images and videos from Doubao links"
+version = "1.0.4"
+description = "Doubao Parser - Extract images and videos from Doubao or Qianwen links"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
