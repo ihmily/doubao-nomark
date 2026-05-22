@@ -52,7 +52,8 @@ class VideoRequest(BaseModel):
 
 class VideoResponse(BaseModel):
     success: bool
-    video: dict
+    video_count: int
+    videos: list[dict]
 
 
 @app.get("/", summary="首页", include_in_schema=False)
@@ -120,7 +121,7 @@ async def parse_video(request: VideoRequest):
         if request.return_raw:
             return {"success": True, "data": video_data}
 
-        return VideoResponse(success=True, video=video_data)
+        return VideoResponse(success=True, video_count=len(video_data), videos=video_data)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except KeyError as e:
@@ -140,7 +141,7 @@ async def parse_video_get(url: str, return_raw: bool = False):
         if return_raw:
             return {"success": True, "data": video_data}
 
-        return VideoResponse(success=True, video=video_data)
+        return VideoResponse(success=True, video_count=len(video_data), videos=video_data)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except KeyError as e:

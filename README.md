@@ -114,7 +114,7 @@ from doubao_parser.video import doubao_video_parse
 
 # 异步调用
 video_data = await doubao_video_parse(
-    url="https://www.doubao.com/video-sharing?share_id=xxx&video_id=xxx",
+    url="https://www.doubao.com/thread/xxxxxx",
     return_raw=False
 )
 ```
@@ -131,11 +131,11 @@ video_data = await doubao_video_parse(
 
 ### 获取分享链接方法
 
-| ![copy-image-link.jpg](docs/images/copy-image-link.jpg) | ![copy-video-link.jpg](docs/images/copy-video-link.jpg) |
-| :-----------------------------------------------------: | :-----------------------------------------------------: |
-|                    获取图片分享链接                     |                    获取视频分享链接                     |
+| ![copy-image-link.jpg](docs/images/copy-image-link.jpg) | ![copy-video-link.jpg](docs/images/copy-video-link-new.jpg) |
+| :-----------------------------------------------------: | :---------------------------------------------------------: |
+|                    获取图片分享链接                     |                      获取视频分享链接                       |
 
-**注意，获取视频分享链接的方式跟图片的相比略有不同。** 获取视频分享地址需要直接长按在视频上，然后点击分享，如果是iphone手机可以直接点击拷贝，即可成功复制到地址。安卓手机可以通过选择在浏览器打开或者分享到微信打开，然后再复制其地址。
+**目前获取视频分享链接的方式与图片已经一致。**长按对话选中对应图片或者视频，然后点击分享复制链接地址。
 
 ### 访问 API 文档
 
@@ -176,12 +176,12 @@ video_data = await doubao_video_parse(
 
 ```json
 {
-  "url": "https://www.doubao.com/video-sharing?share_id=xxx&video_id=xxx",
+  "url": "https://www.doubao.com/thread/xxxxxx",
   "return_raw": false
 }
 ```
 
-**GET** `/parse-video?url=https://www.doubao.com/video-sharing?share_id=xxx&video_id=xxx`
+**GET** `/parse-video?url=https://www.doubao.com/thread/xxxxxx`
 
 **响应示例：**
 
