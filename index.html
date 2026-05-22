@@ -684,7 +684,7 @@
                             v-model="url"
                             type="text"
                             class="input-field"
-                            :placeholder="currentTab === 'image' ? '输入包含图片的豆包/千问对话分享链接，例如：https://www.doubao.com/thread/xxxxx' : '输入豆包或者云雀视频分享链接，例如：https://www.doubao.com/video-sharing?share_id=xxx&video_id=xxx'"
+                            :placeholder="currentTab === 'image' ? '输入包含图片的豆包/千问对话分享链接，例如：https://www.doubao.com/thread/xxxxx' : '输入包含视频的豆包或云雀对话分享链接，例如：https://www.doubao.com/thread/xxxxx'"
                             @keyup.enter="parseUrl"
                             @input="toggleClearBtn"
                         >
