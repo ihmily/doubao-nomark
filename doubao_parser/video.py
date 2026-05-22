@@ -16,19 +16,21 @@ def get_query_params(url: str, param_name: Optional[str] = None) -> dict | list[
         values = query_params.get(param_name, [])
         return values
 
+
 async def get_doubao_vid(url: str) -> list:
     headers = {
-        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,'
-                  'application/signed-exchange;v=b3;q=0.7',
-        'accept-language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7,en-GB;q=0.6',
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
-                      'Chrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0',
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,"
+        "application/signed-exchange;v=b3;q=0.7",
+        "accept-language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7,en-GB;q=0.6",
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0",
     }
     async with httpx.AsyncClient() as client:
         response = await client.get(url, headers=headers)
         html_str = response.text
-        vids = re.findall('{\\\\&quot;vid\\\\&quot;:\\\\&quot;(.*?)\\\\&quot', html_str)
+        vids = re.findall("{\\\\&quot;vid\\\\&quot;:\\\\&quot;(.*?)\\\\&quot", html_str)
         return list(set(vids))
+
 
 async def doubao_video_parse(url: str, return_raw: bool = False) -> list:
     headers = {
@@ -55,9 +57,9 @@ async def doubao_video_parse(url: str, return_raw: bool = False) -> list:
     }
 
     try:
-        if '/thread/' in url:
+        if "/thread/" in url:
             vid_list = await get_doubao_vid(url)
-        elif 'video_id=' in url:
+        elif "video_id=" in url:
             vid_list = get_query_params(url, "video_id")
         else:
             raise ValueError("链接中缺少 video_id 参数，请检查链接是否正确")
@@ -65,8 +67,6 @@ async def doubao_video_parse(url: str, return_raw: bool = False) -> list:
     except (IndexError, TypeError) as e:
         print(f"Exception: {e}")
         raise ValueError("链接格式不正确，请确保使用豆包视频分享链接")
-
-
 
     video_list = []
     for vid in vid_list:
@@ -76,7 +76,7 @@ async def doubao_video_parse(url: str, return_raw: bool = False) -> list:
                     "https://www.doubao.com/samantha/media/get_play_info",
                     params=params,
                     headers=headers,
-                    json={'key': vid},
+                    json={"key": vid},
                 )
 
                 result = response.json()
@@ -89,15 +89,17 @@ async def doubao_video_parse(url: str, return_raw: bool = False) -> list:
 
                 meta = result["data"]["original_media_info"]["meta"]
 
-                video_list.append({
-                    "width": meta["width"],
-                    "height": meta["height"],
-                    "definition": meta["definition"],
-                    "duration": meta["duration"],
-                    "codec_type": meta["codec_type"],
-                    "poster_url": result['data']["poster_url"],
-                    "url": result['data']['original_media_info']["main_url"],
-                })
+                video_list.append(
+                    {
+                        "width": meta["width"],
+                        "height": meta["height"],
+                        "definition": meta["definition"],
+                        "duration": meta["duration"],
+                        "codec_type": meta["codec_type"],
+                        "poster_url": result["data"]["poster_url"],
+                        "url": result["data"]["original_media_info"]["main_url"],
+                    }
+                )
         except httpx.RequestError as e:
             raise ValueError(f"网络请求失败，请检查网络连接: {str(e)}")
         except KeyError as e:
@@ -163,13 +165,15 @@ async def yunque_video_parse(url: str, return_raw: bool = False) -> list:
         play_info = result["data"]["page_info"]
         video_info_list = play_info["generate_page"]["item_info"]["video_info"]
         video_info = video_info_list[0]
-        return [{
-            "url": video_info["video_url"],
-            "width": video_info["width"],
-            "height": video_info["height"],
-            "definition": f"{video_info['width']}p",
-            "poster_url": video_info["cover_url"],
-        }]
+        return [
+            {
+                "url": video_info["video_url"],
+                "width": video_info["width"],
+                "height": video_info["height"],
+                "definition": f"{video_info['width']}p",
+                "poster_url": video_info["cover_url"],
+            }
+        ]
 
 
 if __name__ == "__main__":
