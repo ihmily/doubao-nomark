@@ -240,9 +240,9 @@
                 return;
             }
 
-            if (data.patch_op) {
+            let creations = [];
 
-                var creations = [];
+            if (data.patch_op) {
 
                 for (const op of data.patch_op) {
                     if (
@@ -315,7 +315,7 @@
                     return;
                 }
 
-                var creations = messageContent.creations;
+                creations = messageContent.creations;
             }
             
 
