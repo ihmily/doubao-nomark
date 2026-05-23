@@ -3,16 +3,18 @@
   <h1>无印豆包</h1>
 </div>
 <p align="center">
-  <a href="https://github.com/ihmily/doubao-nomark/stargazers"><img src="https://img.shields.io/github/stars/ihmily/doubao-nomark" alt="GitHub stars"/></a>
+  <a href="https://github.com/ihmily/doubao-nomark/stargazers"><img src="https://img.shields.io/github/stars/ihmily/doubao-nomark?v=0" alt="GitHub stars"/></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python"/></a>
-  <a href="https://hub.docker.com/r/ihmily/doubao-nomark/tags"><img src="https://img.shields.io/docker/pulls/ihmily/doubao-nomark" alt="Docker Pulls"/></a>
+  <a href="https://hub.docker.com/r/ihmily/doubao-nomark/tags"><img src="https://img.shields.io/docker/pulls/ihmily/doubao-nomark?v=0" alt="Docker Pulls"/></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"/></a>
 </p>
+
 
 <p align="center">从豆包对话链接中提取无水印图片和视频资源的 API 服务/浏览器插件</p>
 
 ## 更新日志
 
+- **v1.0.5**：修复豆包无水印视频提取、浏览器插件新增支持视频无水印提取
 - **v1.0.4**：API和插件新增支持千问（Qianwen.com）聊天页图片提取功能
 
 ## 快速开始
@@ -135,7 +137,7 @@ video_data = await doubao_video_parse(
 | :-----------------------------------------------------: | :---------------------------------------------------------: |
 |                    获取图片分享链接                     |                      获取视频分享链接                       |
 
-**目前获取视频分享链接的方式与图片已经一致。**长按对话选中对应图片或者视频，然后点击分享复制链接地址。
+**目前获取视频分享链接的方式与图片已经一致。** 长按对话选中对应图片或者视频，然后点击分享复制链接地址。
 
 ### 访问 API 文档
 
@@ -214,13 +216,13 @@ video_data = await doubao_video_parse(
 
 **在线安装：**
 
-1. 访问Edge扩展安装页面：[无印豆包 - 图片提取](https://microsoftedge.microsoft.com/addons/detail/%E6%97%A0%E5%8D%B0%E8%B1%86%E5%8C%85-%E5%9B%BE%E7%89%87%E6%8F%90%E5%8F%96/hjlplfcnpgglfdjafekcgahffdengaij)
+1. 访问Edge扩展安装页面：[无印豆包 - 素材提取](https://microsoftedge.microsoft.com/addons/detail/hjlplfcnpgglfdjafekcgahffdengaij)
 2. 点击「获取」按钮即可完成安装
 
 **使用说明：**
 
-- 在豆包聊天界面会在页面右下角显示📷按钮，点击按钮可以打开图片下载面板
-- 在豆包对话页面会自动识别并提取无水印的图片资源 **（插件不支持视频）**
+- 在豆包聊天界面会在页面右下角显示📷按钮，点击按钮可以打开素材下载面板
+- 在豆包对话页面会自动识别并提取无水印的图片和视频资源
 
 ### 插件演示
 
