@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         无印豆包 - 图片提取
+// @name         无印豆包 - 素材提取
 // @namespace    http://tampermonkey.net/
-// @version      1.0.4
-// @description  在豆包对话页面提取无水印图片
-// @description:en Extract watermark-free images from Doubao chat pages with one-click download
+// @version      1.0.5
+// @description  在豆包对话页面提取无水印图片/视频，支持一键下载
+// @description:en Extract watermark-free images/videos from Doubao chat pages with one-click download
 // @author       无印豆包
 // @homepage     https://github.com/ihmily/doubao-nomark
 // @supportURL   https://github.com/ihmily/doubao-nomark/issues
@@ -26,15 +26,23 @@
     console.log('[无印豆包] 当前 URL:', window.location.href);
 
     let chatImages = [];
+    let chatVideos = [];
     let floatingBtnElement = null;
 
     function updateButtonCount() {
-        if (floatingBtnElement && window.location.pathname.includes('/chat/')) {
-            const countElement = floatingBtnElement.querySelector('.count');
-            if (countElement) {
-                countElement.textContent = chatImages.length;
-            }
-        }
+        if (!floatingBtnElement) return;
+        const countElement = floatingBtnElement.querySelector('.count');
+        if (!countElement) return;
+        const imgCount = chatImages.length;
+        countElement.textContent = imgCount + chatVideos.length;
+    }
+
+    function addChatVideo(videoInfo) {
+        if (!videoInfo || !videoInfo.url) return;
+        if (chatVideos.find(v => v.vid === videoInfo.vid || v.url === videoInfo.url)) return;
+        chatVideos.push(videoInfo);
+        console.log('[无印豆包] 获取到新视频:', videoInfo.vid, videoInfo.url);
+        updateButtonCount();
     }
 
     const originalXHROpen = XMLHttpRequest.prototype.open;
@@ -60,7 +68,7 @@
                     const messages = data?.downlink_body?.pull_singe_chain_downlink_body?.messages;
                     if (messages && Array.isArray(messages)) {
                         console.log('[无印豆包] 开始解析 messages，数量:', messages.length);
-                        parseChatImages(messages);
+                        parseChatHistoryImages(messages);
                     } else {
                         console.warn('[无印豆包] messages 不是数组或不存在');
                     }
@@ -321,24 +329,30 @@
 
             
             for (const creation of creations) {
-                const imageData = creation.image?.image_ori_raw;
-                if (imageData) {
-                    let imageUrl = '';
-                    let width = 0;
-                    let height = 0;
-                    
-                    if (typeof imageData === 'string') {
-                        imageUrl = imageData;
-                    } else if (typeof imageData === 'object' && imageData.url) {
-                        imageUrl = imageData.url;
-                        width = imageData.width || 0;
-                        height = imageData.height || 0;
-                    }
-                    
-                    if (imageUrl && !chatImages.find(img => img.url === imageUrl)) {
-                        chatImages.push({ url: imageUrl, width, height });
-                        console.log('[无印豆包] 获取到新图片:', imageUrl, `${width} × ${height}`);
-                        updateButtonCount();
+                if (creation?.video) {
+                    // Handle video
+                    const vid = creation.video.vid;
+                    getDoubaoVideoInfo(vid).then(info => addChatVideo(info));
+                }else{
+                    const imageData = creation.image?.image_ori_raw;
+                    if (imageData) {
+                        let imageUrl = '';
+                        let width = 0;
+                        let height = 0;
+                        
+                        if (typeof imageData === 'string') {
+                            imageUrl = imageData;
+                        } else if (typeof imageData === 'object' && imageData.url) {
+                            imageUrl = imageData.url;
+                            width = imageData.width || 0;
+                            height = imageData.height || 0;
+                        }
+                        
+                        if (imageUrl && !chatImages.find(img => img.url === imageUrl)) {
+                            chatImages.push({ url: imageUrl, width, height });
+                            console.log('[无印豆包] 获取到新图片:', imageUrl, `${width} × ${height}`);
+                            updateButtonCount();
+                        }
                     }
                 }
             }
@@ -347,7 +361,72 @@
         }
     }
 
-    function parseChatImages(messages) {
+    async function getDoubaoVideoInfo(vid) {
+        if (!vid) {
+            console.warn('[无印豆包] getDoubaoVideoInfo: vid 为空');
+            return null;
+        }
+
+        const params = {
+            version_code: '20800',
+            language: 'zh-CN',
+            device_platform: 'web',
+            aid: '497858',
+            real_aid: '497858',
+            pkg_type: 'release_version',
+            device_id: '',
+            pc_version: '2.51.7',
+            region: '',
+            sys_region: '',
+            samantha_web: '1',
+            'use-olympus-account': '1',
+            web_tab_id: '',
+        };
+
+        const queryString = new URLSearchParams(params).toString();
+        const apiUrl = `https://www.doubao.com/samantha/media/get_play_info?${queryString}`;
+
+        try {
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'origin': 'https://www.doubao.com',
+                },
+                body: JSON.stringify({ key: vid }),
+            });
+
+            const result = await response.json();
+
+            if (!result || !result.data) {
+                console.warn('[无印豆包] API返回数据格式异常，可能链接已失效:', result);
+                return null;
+            }
+
+            const originalMediaInfo = result.data.original_media_info || {};
+            const meta = originalMediaInfo.meta || {};
+
+            const videoInfo = {
+                vid: vid,
+                width: meta.width || 0,
+                height: meta.height || 0,
+                definition: meta.definition || '',
+                duration: meta.duration || 0,
+                codec_type: meta.codec_type || '',
+                poster_url: result.data.poster_url || '',
+                url: originalMediaInfo.main_url || '',
+            };
+
+            console.log('[无印豆包] 获取无水印视频成功:', vid, videoInfo.url);
+            return videoInfo;
+        } catch (e) {
+            console.error('[无印豆包] 获取视频播放信息失败:', e);
+            return null;
+        }
+    }
+
+    function parseChatHistoryImages(messages) {
         if (!Array.isArray(messages)) return;
         
         const newImages = [];
@@ -359,23 +438,28 @@
                         const creationBlock = content.content?.creation_block;
                         if (!creationBlock || !Array.isArray(creationBlock.creations)) continue;
                         for (const creation of creationBlock.creations) {
-                            const imageData = creation.image?.image_ori_raw;
-                            if (imageData) {
-                                let imageUrl = '';
-                                let width = 0;
-                                let height = 0;
-                                
-                                if (typeof imageData === 'string') {
-                                    imageUrl = imageData;
-                                } else if (typeof imageData === 'object' && imageData.url) {
-                                    imageUrl = imageData.url;
-                                    width = imageData.width || 0;
-                                    height = imageData.height || 0;
-                                }
-                                
-                                if (imageUrl && !newImages.find(img => img.url === imageUrl)) {
-                                    newImages.push({ url: imageUrl, width, height });
-                                    console.log('[无印豆包] 找到图片:', imageUrl, `${width} × ${height}`);
+                            if (creation?.video) {
+                                const vid = creation.video.vid;
+                                getDoubaoVideoInfo(vid).then(info => addChatVideo(info));
+                            }else{
+                                const imageData = creation.image?.image_ori_raw;
+                                if (imageData) {
+                                    let imageUrl = '';
+                                    let width = 0;
+                                    let height = 0;
+                                    
+                                    if (typeof imageData === 'string') {
+                                        imageUrl = imageData;
+                                    } else if (typeof imageData === 'object' && imageData.url) {
+                                        imageUrl = imageData.url;
+                                        width = imageData.width || 0;
+                                        height = imageData.height || 0;
+                                    }
+                                    
+                                    if (imageUrl && !newImages.find(img => img.url === imageUrl)) {
+                                        newImages.push({ url: imageUrl, width, height });
+                                        console.log('[无印豆包] 找到图片:', imageUrl, `${width} × ${height}`);
+                                    }
                                 }
                             }
                         }
@@ -397,15 +481,7 @@
         }
     }
 
-    function extractImages() {
-        
-        if (window.location.hostname.includes('doubao.com') && window.location.pathname.includes('/chat/')) {
-            console.log('[无印豆包] 豆包聊天界面，返回已缓存的', chatImages.length, '张图片');
-            return chatImages;
-        } else if (window.location.hostname.includes('qianwen.com') && window.location.pathname.includes('/chat/')) {
-            return chatImages;
-        }
-        
+    function extractSharePageImages() {
         try {
             const imageList = [];
             
@@ -427,27 +503,32 @@
                                         const contentData = JSON.parse(block.content_v2);
                                         if (contentData.creation_block?.creations) {
                                             for (const creation of contentData.creation_block.creations) {
-                                                const imageData = creation.image?.image_ori_raw;
-                                                if (imageData) {
-                                                    let imageUrl = '';
-                                                    let width = 0;
-                                                    let height = 0;
-                                                    
-                                                    if (typeof imageData === 'string') {
-                                                        imageUrl = imageData;
-                                                    } else if (typeof imageData === 'object' && imageData.url) {
-                                                        imageUrl = imageData.url.replace(/&amp;/g, '&');
-                                                        width = imageData.width || 0;
-                                                        height = imageData.height || 0;
-                                                    }
-                                                    
-                                                    if (imageUrl && !imageList.find(img => img.url === imageUrl)) {
-                                                        imageList.push({
-                                                            url: imageUrl,
-                                                            width: width,
-                                                            height: height
-                                                        });
-                                                        console.log('[无印豆包] 找到图片:', imageUrl, `${width} × ${height}`);
+                                                if (creation?.video) {
+                                                    const vid = creation.video.vid;
+                                                    getDoubaoVideoInfo(vid).then(info => addChatVideo(info));
+                                                }else{
+                                                    const imageData = creation.image?.image_ori_raw;
+                                                    if (imageData) {
+                                                        let imageUrl = '';
+                                                        let width = 0;
+                                                        let height = 0;
+                                                        
+                                                        if (typeof imageData === 'string') {
+                                                            imageUrl = imageData;
+                                                        } else if (typeof imageData === 'object' && imageData.url) {
+                                                            imageUrl = imageData.url.replace(/&amp;/g, '&');
+                                                            width = imageData.width || 0;
+                                                            height = imageData.height || 0;
+                                                        }
+                                                        
+                                                        if (imageUrl && !imageList.find(img => img.url === imageUrl)) {
+                                                            imageList.push({
+                                                                url: imageUrl,
+                                                                width: width,
+                                                                height: height
+                                                            });
+                                                            console.log('[无印豆包] 找到图片:', imageUrl, `${width} × ${height}`);
+                                                        }
                                                     }
                                                 }
                                             }
@@ -465,71 +546,32 @@
                 }
             }
             
-            // 旧方法：兼容旧版页面结构
-            if (window._ROUTER_DATA) {
-                const loaderData = window._ROUTER_DATA.loaderData;
-                
-                let messageSnapshot = null;
-                
-                if (loaderData?.["thread_(token)/page"]?.data?.message_snapshot?.message_list) {
-                    messageSnapshot = loaderData["thread_(token)/page"].data.message_snapshot.message_list;
-                } else if (loaderData?.["routes/thread_(token)/page"]?.data?.message_snapshot?.message_list) {
-                    messageSnapshot = loaderData["routes/thread_(token)/page"].data.message_snapshot.message_list;
-                } else if (loaderData?.["thread/page"]?.data?.message_snapshot?.message_list) {
-                    messageSnapshot = loaderData["thread/page"].data.message_snapshot.message_list;
-                }
-
-                if (messageSnapshot) {
-                    console.log('[无印豆包] 找到消息列表，共', messageSnapshot.length, '条消息');
-
-                    for (const message of messageSnapshot) {
-                        for (const block of message.content_block || []) {
-                            try {
-                                const contentData = JSON.parse(block.content_v2);
-                                if (contentData.creation_block?.creations) {
-                                    for (const creation of contentData.creation_block.creations) {
-                                        const imageData = creation.image?.image_ori_raw;
-                                        if (imageData) {
-                                            let imageUrl = '';
-                                            let width = 0;
-                                            let height = 0;
-                                            
-                                            if (typeof imageData === 'string') {
-                                                imageUrl = imageData;
-                                            } else if (typeof imageData === 'object' && imageData.url) {
-                                                imageUrl = imageData.url;
-                                                width = imageData.width || 0;
-                                                height = imageData.height || 0;
-                                            }
-                                            
-                                            if (imageUrl && !imageList.find(img => img.url === imageUrl)) {
-                                                imageList.push({
-                                                    url: imageUrl,
-                                                    width: width,
-                                                    height: height
-                                                });
-                                                console.log('[无印豆包] 找到图片:', imageUrl, `${width} × ${height}`);
-                                            }
-                                        }
-                                    }
-                                }
-                            } catch (e) {
-                                continue;
-                            }
-                        }
-                    }
-
-                    console.log('[无印豆包] 提取完成，共找到', imageList.length, '张图片');
-                    return imageList;
-                }
-            }
-            
             console.error('[无印豆包] 未找到任何可用的数据源');
             return [];
         } catch (error) {
             console.error('[无印豆包] 提取图片失败:', error);
             return [];
         }
+    }
+
+    function extractImages() {
+        
+        if (window.location.hostname.includes('doubao.com') && window.location.pathname.includes('/chat/')) {
+            console.log('[无印豆包] 豆包聊天界面，返回已缓存的', chatImages.length, '张图片');
+            return chatImages;
+        } else if (window.location.hostname.includes('qianwen.com') && window.location.pathname.includes('/chat/')) {
+            return chatImages;
+        }else{
+            const images = extractSharePageImages();
+            chatImages = images;
+            console.log('[无印豆包] 豆包分享界面，返回已缓存的', images.length, '张图片');
+            return images;
+        }
+    }
+
+    function extractVideos() {
+        console.log('[无印豆包] 当前视频缓存数:', chatVideos.length);
+        return chatVideos;
     }
 
     async function downloadImage(url, filename) {
@@ -727,28 +769,73 @@
                     background: #a0a0a0;
                 }
                 
-                .image-grid {
+                .media-grid {
+                    --media-card-width: 220px;
+                    --media-preview-height: 220px;
                     display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+                    grid-template-columns: repeat(auto-fill, minmax(var(--media-card-width), var(--media-card-width)));
+                    justify-content: start;
                     gap: 16px;
                 }
-                
-                .image-item {
+
+                .media-card {
                     position: relative;
                     border-radius: 8px;
                     overflow: hidden;
                     border: 1px solid #e0e0e0;
                     background: #fafafa;
                     transition: all 0.2s ease;
+                    display: flex;
+                    flex-direction: column;
                 }
-                
-                .image-item:hover {
+
+                .media-card:hover {
                     border-color: #1f1f1f;
                 }
-                
-                .image-item img {
+
+                .media-preview {
                     width: 100%;
-                    height: 220px;
+                    height: var(--media-preview-height);
+                    display: block;
+                    background: #000;
+                }
+
+                .media-preview video {
+                    width: 100%;
+                    height: var(--media-preview-height);
+                    object-fit: contain;
+                    display: block;
+                    background: #000;
+                }
+
+                .video-meta {
+                    display: flex;
+                    flex-wrap: wrap;
+                    gap: 8px;
+                    padding: 8px 10px;
+                    font-size: 12px;
+                    color: #6b6b6b;
+                    background: #ffffff;
+                    border-top: 1px solid #f0f0f0;
+                }
+
+                .video-meta-item {
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 4px;
+                }
+
+                .video-actions {
+                    display: flex;
+                    gap: 8px;
+                    padding: 10px;
+                    background: #ffffff;
+                    border-top: 1px solid #e0e0e0;
+                }
+                
+                .media-preview img {
+                    width: 100%;
+                    height: var(--media-preview-height);
                     object-fit: cover;
                     display: block;
                 }
@@ -767,16 +854,8 @@
                     transition: opacity 0.2s ease;
                 }
                 
-                .image-item:hover .image-info {
+                .media-card:hover .image-info {
                     opacity: 1;
-                }
-                
-                .image-actions {
-                    display: flex;
-                    gap: 8px;
-                    padding: 10px;
-                    background: #ffffff;
-                    border-top: 1px solid #e0e0e0;
                 }
                 
                 .action-btn {
@@ -876,7 +955,7 @@
                     opacity: 1;
                 }
             </style>
-            <div id="doubao-nomark-btn" title="提取无水印图片">
+            <div id="doubao-nomark-btn" title="提取无水印素材">
                 📷
                 <span class="count">0</span>
             </div>
@@ -884,13 +963,13 @@
                 <div class="modal-content">
                     <div class="modal-header">
                         <div class="modal-header-left">
-                            <h3>无水印图片</h3>
+                            <h3>无水印素材</h3>
                             <div class="subtitle" id="image-subtitle">共 0 张图片</div>
                         </div>
                         <button class="close-btn">×</button>
                     </div>
                     <div class="modal-body">
-                        <div class="image-grid" id="image-container"></div>
+                        <div class="media-grid" id="media-container"></div>
                     </div>
                     <div class="modal-footer">
                         <a href="https://github.com/ihmily/doubao-nomark" target="_blank" class="footer-link">
@@ -913,74 +992,135 @@
         const floatingBtn = floatingBtnElement;
         const modal = document.getElementById('doubao-nomark-modal');
         const closeBtn = modal.querySelector('.close-btn');
-        const imageContainer = document.getElementById('image-container');
+        const mediaContainer = document.getElementById('media-container');
         const imageSubtitle = document.getElementById('image-subtitle');
 
         let currentImages = [];
+        let currentVideos = [];
+
+        function formatDuration(sec) {
+            if (!sec || sec <= 0) return '';
+            const s = Math.floor(sec);
+            const m = Math.floor(s / 60);
+            const r = s % 60;
+            return `${m}:${r.toString().padStart(2, '0')}`;
+        }
 
         function updateImageCount() {
             const images = extractImages();
+            const videos = extractVideos();
             currentImages = images;
-            const count = images.length;
-            floatingBtn.querySelector('.count').textContent = count;
-            imageSubtitle.textContent = `共 ${count} 张图片`;
-            return images;
+            currentVideos = videos;
+            const totalCount = images.length + videos.length;
+            floatingBtn.querySelector('.count').textContent = totalCount;
+            imageSubtitle.textContent = `共 ${images.length} 张图片 · ${videos.length} 个视频`;
+            return { images, videos };
+        }
+
+        function renderMedia(images, videos) {
+            const mediaItems = [
+                ...images.map((image, index) => ({ type: 'image', data: image, index })),
+                ...videos.map((video, index) => ({ type: 'video', data: video, index })),
+            ];
+
+            if (mediaItems.length === 0) {
+                mediaContainer.innerHTML = '';
+                return;
+            }
+
+            mediaContainer.innerHTML = mediaItems.map((item) => {
+                if (item.type === 'image') {
+                    const image = item.data;
+                    const resolution = (image.width && image.height) ? `${image.width} × ${image.height}` : '';
+                    return `
+                        <div class="media-card">
+                            <div class="media-preview">
+                                <img src="${image.url}" alt="图片 ${item.index + 1}" loading="lazy">
+                                ${resolution ? `<div class="image-info">${resolution}</div>` : ''}
+                            </div>
+                            <div class="video-meta">
+                                <span class="video-meta-item">🖼 图片</span>
+                                ${resolution ? `<span class="video-meta-item">📐 ${resolution}</span>` : ''}
+                            </div>
+                            <div class="video-actions">
+                                <button class="action-btn btn-media-download" data-type="image" data-url="${image.url}" data-index="${item.index}">下载</button>
+                                <button class="action-btn btn-media-copy" data-url="${image.url}">复制地址</button>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                const video = item.data;
+                const resolution = (video.width && video.height) ? `${video.width} × ${video.height}` : '';
+                const duration = formatDuration(video.duration);
+                const posterAttr = video.poster_url ? ` poster="${video.poster_url}"` : '';
+                return `
+                    <div class="media-card">
+                        <div class="media-preview">
+                            <video src="${video.url}" controls preload="none" playsinline${posterAttr}></video>
+                        </div>
+                        <div class="video-meta">
+                            <span class="video-meta-item">🎬 视频</span>
+                            ${resolution ? `<span class="video-meta-item">📐 ${resolution}</span>` : ''}
+                            ${duration ? `<span class="video-meta-item">⏱ ${duration}</span>` : ''}
+                            ${video.definition ? `<span class="video-meta-item">清晰度 ${video.definition}</span>` : ''}
+                        </div>
+                        <div class="video-actions">
+                            <button class="action-btn btn-media-download" data-type="video" data-url="${video.url}" data-index="${item.index}">下载</button>
+                            <button class="action-btn btn-media-copy" data-url="${video.url}">复制地址</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            mediaContainer.querySelectorAll('.btn-media-download').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const type = btn.dataset.type;
+                    const url = btn.dataset.url;
+                    const index = parseInt(btn.dataset.index, 10) + 1;
+                    const filename = type === 'video' ? `doubao_video_${index}.mp4` : `doubao_image_${index}.png`;
+                    downloadImage(url, filename);
+                    btn.classList.add('success');
+                    btn.textContent = '✓ 已下载';
+                    setTimeout(() => {
+                        btn.classList.remove('success');
+                        btn.textContent = '下载';
+                    }, 2000);
+                });
+            });
+
+            mediaContainer.querySelectorAll('.btn-media-copy').forEach(btn => {
+                btn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    const url = btn.dataset.url;
+                    try {
+                        await navigator.clipboard.writeText(url);
+                        btn.classList.add('success');
+                        btn.textContent = '✓ 已复制';
+                        setTimeout(() => {
+                            btn.classList.remove('success');
+                            btn.textContent = '复制地址';
+                        }, 2000);
+                    } catch (err) {
+                        console.error('复制失败:', err);
+                    }
+                });
+            });
         }
 
         floatingBtn.addEventListener('click', () => {
-            const images = updateImageCount();
-            
-            if (images.length === 0) {
-                imageContainer.innerHTML = `
+            const { images, videos } = updateImageCount();
+
+            if (images.length === 0 && videos.length === 0) {
+                mediaContainer.innerHTML = `
                     <div class="empty-state">
                         <div class="empty-state-icon">🖼️</div>
-                        <div class="empty-state-text">当前页面没有找到图片</div>
+                        <div class="empty-state-text">当前页面没有找到图片或视频</div>
                     </div>
                 `;
             } else {
-                imageContainer.innerHTML = images.map((image, index) => `
-                    <div class="image-item">
-                        <img src="${image.url}" alt="图片 ${index + 1}" loading="lazy">
-                        <div class="image-info">${image.width} × ${image.height}</div>
-                        <div class="image-actions">
-                            <button class="action-btn btn-download" data-url="${image.url}" data-index="${index}">下载</button>
-                            <button class="action-btn btn-copy" data-url="${image.url}" data-index="${index}">复制地址</button>
-                        </div>
-                    </div>
-                `).join('');
-
-                imageContainer.querySelectorAll('.btn-download').forEach(btn => {
-                    btn.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        const url = btn.dataset.url;
-                        const index = btn.dataset.index;
-                        downloadImage(url, `doubao_image_${parseInt(index) + 1}.png`);
-                        btn.classList.add('success');
-                        btn.textContent = '✓ 已下载';
-                        setTimeout(() => {
-                            btn.classList.remove('success');
-                            btn.textContent = '下载';
-                        }, 2000);
-                    });
-                });
-                
-                imageContainer.querySelectorAll('.btn-copy').forEach(btn => {
-                    btn.addEventListener('click', async (e) => {
-                        e.stopPropagation();
-                        const url = btn.dataset.url;
-                        try {
-                            await navigator.clipboard.writeText(url);
-                            btn.classList.add('success');
-                            btn.textContent = '✓ 已复制';
-                            setTimeout(() => {
-                                btn.classList.remove('success');
-                                btn.textContent = '复制地址';
-                            }, 2000);
-                        } catch (err) {
-                            console.error('复制失败:', err);
-                        }
-                    });
-                });
+                renderMedia(images, videos);
             }
 
             modal.classList.add('show');
@@ -1022,6 +1162,10 @@
             } else {
                 console.warn('[无印豆包] 页面数据加载超时，仍创建按钮（可能无法提取历史图片）');
             }
+        }
+
+        if (window.location.hostname.includes('doubao.com') && window.location.pathname.includes('/thread/')) {
+            chatImages = extractSharePageImages();
         }
         
         createFloatingButton();
