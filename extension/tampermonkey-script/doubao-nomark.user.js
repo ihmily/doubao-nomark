@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         无印豆包 - 素材提取
 // @namespace    http://tampermonkey.net/
-// @version      1.0.5
+// @version      1.0.10
 // @description  在豆包对话页面提取无水印图片/视频，支持一键下载
 // @description:en Extract watermark-free images/videos from Doubao chat pages with one-click download
 // @author       无印豆包
@@ -13,7 +13,9 @@
 // @match        https://www.doubao.com/chat/*
 // @match        https://www.qianwen.com/chat/*
 // @match        https://www.qianwen.com/share/chat/*
-// @grant        none
+// @grant        GM_download
+// @grant        unsafeWindow
+// @connect      *
 // @license      MIT
 // @run-at       document-end
 // @icon         data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>📷</text></svg>
@@ -23,7 +25,10 @@
     'use strict';
 
     console.log('%c[无印豆包] 脚本开始执行', 'color: #667eea; font-size: 14px; font-weight: bold');
-    console.log('[无印豆包] 当前 URL:', window.location.href);
+    const pageWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+    const NativeReadableStream = pageWindow.ReadableStream || ReadableStream;
+    const NativeResponse = pageWindow.Response || Response;
+    console.log('[无印豆包] 当前 URL:', pageWindow.location.href);
 
     let chatImages = [];
     let chatVideos = [];
@@ -45,16 +50,16 @@
         updateButtonCount();
     }
 
-    const originalXHROpen = XMLHttpRequest.prototype.open;
-    const originalXHRSend = XMLHttpRequest.prototype.send;
+    const originalXHROpen = pageWindow.XMLHttpRequest.prototype.open;
+    const originalXHRSend = pageWindow.XMLHttpRequest.prototype.send;
     
-    XMLHttpRequest.prototype.open = function(method, url, ...args) {
+    pageWindow.XMLHttpRequest.prototype.open = function(method, url, ...args) {
         this._url = url;
         // console.log('[无印豆包] XHR open:', method, url);
         return originalXHROpen.apply(this, [method, url, ...args]);
     };
     
-    XMLHttpRequest.prototype.send = function(...args) {
+    pageWindow.XMLHttpRequest.prototype.send = function(...args) {
         const url = this._url;
         this.addEventListener('load', function() {
             if (url && (url.includes('/im/chain/single'))) {
@@ -82,8 +87,8 @@
     
     console.log('[无印豆包] XHR 拦截已安装');
 
-    const originalFetch = window.fetch;
-    window.fetch = async function(...args) {
+    const originalFetch = pageWindow.fetch;
+    pageWindow.fetch = async function(...args) {
         const url = args[0];
 
         if (url && (typeof url === 'string') && url.includes('qianwen.com/api/v1/session/msg/list')) {
@@ -119,7 +124,7 @@
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             
-            const stream = new ReadableStream({
+            const stream = new NativeReadableStream({
                 async start(controller) {
                     let buffer = '';
                     let waitingForData = false;
@@ -154,7 +159,7 @@
                 }
             });
             
-            return new Response(stream, {
+            return new NativeResponse(stream, {
                 headers: response.headers,
                 status: response.status,
                 statusText: response.statusText
@@ -168,7 +173,7 @@
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             
-            const stream = new ReadableStream({
+            const stream = new NativeReadableStream({
                 async start(controller) {
                     while (true) {
                         const { done, value } = await reader.read();
@@ -201,7 +206,7 @@
                 }
             });
             
-            return new Response(stream, {
+            return new NativeResponse(stream, {
                 headers: response.headers,
                 status: response.status,
                 statusText: response.statusText
@@ -556,10 +561,10 @@
 
     function extractImages() {
         
-        if (window.location.hostname.includes('doubao.com') && window.location.pathname.includes('/chat/')) {
+        if (pageWindow.location.hostname.includes('doubao.com') && pageWindow.location.pathname.includes('/chat/')) {
             console.log('[无印豆包] 豆包聊天界面，返回已缓存的', chatImages.length, '张图片');
             return chatImages;
-        } else if (window.location.hostname.includes('qianwen.com') && window.location.pathname.includes('/chat/')) {
+        } else if (pageWindow.location.hostname.includes('qianwen.com') && pageWindow.location.pathname.includes('/chat/')) {
             return chatImages;
         }else{
             const images = extractSharePageImages();
@@ -574,29 +579,109 @@
         return chatVideos;
     }
 
+    function createDownloadTask(url, filename) {
+        let settled = false;
+        let rejectDownload = null;
+        let abortDownload = null;
+
+        const promise = new Promise((resolve, reject) => {
+            rejectDownload = reject;
+
+            const finish = () => {
+                if (settled) return;
+                settled = true;
+                console.log('[无印豆包] 下载完成:', filename);
+                resolve();
+            };
+
+            const fail = (error) => {
+                if (settled) return;
+                settled = true;
+                console.error('[无印豆包] 下载失败:', error);
+                reject(error);
+            };
+
+            console.log('[无印豆包] 开始下载:', url);
+
+            if (typeof GM_download === 'function') {
+                try {
+                    const download = GM_download({
+                        url,
+                        name: filename,
+                        saveAs: false,
+                        onload: finish,
+                        onerror: fail,
+                        ontimeout: () => fail(new Error('下载超时')),
+                    });
+
+                    if (download && typeof download.abort === 'function') {
+                        abortDownload = () => download.abort();
+                    }
+                } catch (error) {
+                    fail(error);
+                }
+                return;
+            }
+
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            abortDownload = () => controller?.abort();
+
+            fetch(url, { signal: controller?.signal })
+                .then(response => response.blob())
+                .then(blob => {
+                    const blobUrl = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = blobUrl;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+                    finish();
+                })
+                .catch(fail);
+        });
+
+        return {
+            promise,
+            abort() {
+                if (settled) return;
+                settled = true;
+                try {
+                    if (abortDownload) abortDownload();
+                } catch (error) {
+                    console.warn('[无印豆包] 取消下载失败:', error);
+                }
+                rejectDownload(new Error('下载已取消'));
+            },
+        };
+    }
+
     async function downloadImage(url, filename) {
         try {
-            console.log('[无印豆包] 开始下载:', url);
-            
-            const response = await fetch(url);
-            const blob = await response.blob();
-            
-            const blobUrl = URL.createObjectURL(blob);
-            
-            const a = document.createElement('a');
-            a.href = blobUrl;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            
-            setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
-            
-            console.log('[无印豆包] 下载完成:', filename);
+            await createDownloadTask(url, filename).promise;
+            return true;
         } catch (error) {
-            console.error('[无印豆包] 下载失败:', error);
+            if (error?.message === '下载已取消') return false;
             alert('下载失败，请重试');
+            return false;
         }
+    }
+
+    function getMediaExtension(url, type) {
+        try {
+            const pathname = new URL(url, pageWindow.location.href).pathname;
+            const match = pathname.match(/\.([a-z0-9]{2,5})$/i);
+            if (match) return `.${match[1].toLowerCase()}`;
+        } catch (e) {
+            // Ignore malformed URLs and fall back to a safe default extension.
+        }
+        return type === 'video' ? '.mp4' : '.png';
+    }
+
+    function getDownloadFilename(type, index, url) {
+        const prefix = type === 'video' ? 'doubao_video' : 'doubao_image';
+        return `${prefix}_${index + 1}${getMediaExtension(url, type)}`;
     }
 
     function createFloatingButton() {
@@ -675,14 +760,16 @@
                 .modal-content {
                     background: #ffffff;
                     border-radius: 12px;
-                    width: 90%;
-                    max-width: 1000px;
+                    width: 888px;
+                    max-width: calc(100vw - 48px);
                     max-height: 85vh;
                     display: flex;
                     flex-direction: column;
                     overflow: hidden;
                     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.16);
                     animation: slideUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+                    font-size: 12px;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                 }
                 
                 @keyframes slideUp {
@@ -696,37 +783,50 @@
                     }
                 }
                 
-                .modal-header {
-                    padding: 24px 32px;
+                .modal-topbar {
+                    padding: 10px 20px 0;
                     border-bottom: 1px solid #e0e0e0;
                     display: flex;
                     align-items: center;
                     justify-content: space-between;
+                    gap: 12px;
                 }
-                
-                .modal-header h3 {
-                    margin: 0;
-                    font-size: 18px;
-                    font-weight: 600;
-                    color: #1f1f1f;
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                }
-                
-                .modal-header .subtitle {
-                    font-size: 13px;
-                    color: #6b6b6b;
-                    margin-top: 4px;
-                    font-weight: 400;
-                }
-                
-                .modal-header-left {
+
+                .modal-actions {
                     display: flex;
-                    flex-direction: column;
+                    align-items: center;
+                    gap: 6px;
+                    margin-bottom: 8px;
                 }
-                
+
+                .top-action-btn {
+                    height: 26px;
+                    padding: 0 8px;
+                    border: 1px solid #e0e0e0;
+                    border-radius: 6px;
+                    background: #ffffff;
+                    color: #1f1f1f;
+                    font-size: 12px;
+                    font-weight: 500;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                    white-space: nowrap;
+                }
+
+                .top-action-btn:hover {
+                    background: #f7f7f7;
+                    border-color: #1f1f1f;
+                }
+
+                .top-action-btn.danger {
+                    background: #fff7ed;
+                    border-color: #fdba74;
+                    color: #9a3412;
+                }
+
                 .close-btn {
-                    width: 32px;
-                    height: 32px;
+                    width: 26px;
+                    height: 26px;
                     background: transparent;
                     border: 1px solid #e0e0e0;
                     border-radius: 6px;
@@ -735,7 +835,7 @@
                     align-items: center;
                     justify-content: center;
                     color: #6b6b6b;
-                    font-size: 20px;
+                    font-size: 12px;
                     transition: all 0.2s ease;
                     line-height: 1;
                 }
@@ -747,9 +847,41 @@
                 }
                 
                 .modal-body {
-                    padding: 24px 32px;
+                    padding: 16px 20px;
                     overflow-y: auto;
                     flex: 1;
+                }
+
+                .media-tabs {
+                    display: flex;
+                    gap: 8px;
+                    padding: 0;
+                    background: #ffffff;
+                }
+
+                .media-tab {
+                    padding: 6px 12px;
+                    border: 1px solid #e0e0e0;
+                    border-bottom-color: transparent;
+                    border-radius: 8px 8px 0 0;
+                    background: #f7f7f7;
+                    color: #6b6b6b;
+                    font-size: 12px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                }
+
+                .media-tab:hover {
+                    color: #1f1f1f;
+                    background: #ffffff;
+                }
+
+                .media-tab.active {
+                    color: #1f1f1f;
+                    background: #ffffff;
+                    border-color: #d0d0d0;
+                    box-shadow: 0 -1px 0 #ffffff inset;
                 }
                 
                 .modal-body::-webkit-scrollbar {
@@ -770,12 +902,12 @@
                 }
                 
                 .media-grid {
-                    --media-card-width: 220px;
-                    --media-preview-height: 220px;
+                    --media-card-width: 160px;
+                    --media-preview-height: 160px;
                     display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(var(--media-card-width), var(--media-card-width)));
+                    grid-template-columns: repeat(5, var(--media-card-width));
                     justify-content: start;
-                    gap: 16px;
+                    gap: 12px;
                 }
 
                 .media-card {
@@ -794,10 +926,12 @@
                 }
 
                 .media-preview {
+                    position: relative;
                     width: 100%;
                     height: var(--media-preview-height);
                     display: block;
                     background: #000;
+                    cursor: pointer;
                 }
 
                 .media-preview video {
@@ -808,11 +942,67 @@
                     background: #000;
                 }
 
+                .video-click-zone {
+                    position: absolute;
+                    left: 0;
+                    width: 100%;
+                    height: 50%;
+                    z-index: 2;
+                }
+
+                .video-click-top {
+                    top: 0;
+                    cursor: pointer;
+                }
+
+                .video-click-bottom {
+                    bottom: 0;
+                    cursor: pointer;
+                }
+
+                .video-control-overlay {
+                    position: absolute;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 6px;
+                    min-height: 34px;
+                    padding: 6px;
+                    background: linear-gradient(to top, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0));
+                    color: #ffffff;
+                    opacity: 0;
+                    transform: translateY(4px);
+                    transition: opacity 0.16s ease, transform 0.16s ease;
+                    pointer-events: none;
+                }
+
+                .video-click-bottom:hover .video-control-overlay {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+
+                .video-play-indicator {
+                    width: 26px;
+                    height: 26px;
+                    border-radius: 999px;
+                    background: rgba(255, 255, 255, 0.88);
+                    color: #111111;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 12px;
+                    font-weight: 700;
+                    line-height: 1;
+                }
+
                 .video-meta {
                     display: flex;
                     flex-wrap: wrap;
-                    gap: 8px;
-                    padding: 8px 10px;
+                    gap: 6px;
+                    padding: 6px 8px;
                     font-size: 12px;
                     color: #6b6b6b;
                     background: #ffffff;
@@ -827,8 +1017,9 @@
 
                 .video-actions {
                     display: flex;
-                    gap: 8px;
-                    padding: 10px;
+                    align-items: center;
+                    gap: 6px;
+                    padding: 8px;
                     background: #ffffff;
                     border-top: 1px solid #e0e0e0;
                 }
@@ -844,10 +1035,10 @@
                     position: absolute;
                     top: 8px;
                     right: 8px;
-                    padding: 4px 8px;
+                    padding: 3px 6px;
                     background: rgba(0, 0, 0, 0.6);
                     border-radius: 4px;
-                    font-size: 11px;
+                    font-size: 12px;
                     color: #ffffff;
                     font-weight: 500;
                     opacity: 0;
@@ -859,17 +1050,25 @@
                 }
                 
                 .action-btn {
-                    flex: 1;
-                    padding: 6px 12px;
+                    flex: 0 0 auto;
+                    min-width: 52px;
+                    padding: 6px 10px;
                     border: 1px solid #e0e0e0;
                     border-radius: 4px;
                     background: #ffffff;
                     color: #1f1f1f;
-                    font-size: 13px;
+                    font-size: 12px;
                     font-weight: 500;
                     cursor: pointer;
                     transition: all 0.2s ease;
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                }
+
+                .media-select {
+                    width: 14px;
+                    height: 14px;
+                    margin: 0 0 0 auto;
+                    accent-color: #1f1f1f;
+                    cursor: pointer;
                 }
                 
                 .action-btn:hover {
@@ -885,7 +1084,7 @@
                 
                 .empty-state {
                     text-align: center;
-                    padding: 80px 20px;
+                    padding: 56px 20px;
                     color: #a0a0a0;
                 }
                 
@@ -896,24 +1095,24 @@
                 }
                 
                 .empty-state-text {
-                    font-size: 15px;
+                    font-size: 12px;
                     color: #6b6b6b;
                     font-weight: 500;
                 }
                 
                 .empty-state-desc {
-                    font-size: 13px;
+                    font-size: 12px;
                     color: #a0a0a0;
                     margin-top: 4px;
                 }
                 
                 .modal-footer {
-                    padding: 16px 32px;
+                    padding: 8px 20px;
                     border-top: 1px solid #e0e0e0;
                     display: flex;
                     justify-content: center;
                     align-items: center;
-                    gap: 12px;
+                    gap: 8px;
                     background: #fafafa;
                 }
                 
@@ -925,8 +1124,7 @@
                 
                 .footer-text {
                     color: #a0a0a0;
-                    font-size: 13px;
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    font-size: 12px;
                 }
                 
                 .footer-link {
@@ -935,9 +1133,8 @@
                     gap: 6px;
                     color: #6b6b6b;
                     text-decoration: none;
-                    font-size: 13px;
+                    font-size: 12px;
                     transition: all 0.15s ease;
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                 }
                 
                 .footer-link:hover {
@@ -954,6 +1151,16 @@
                 .footer-link:hover svg {
                     opacity: 1;
                 }
+
+                @media (max-width: 920px) {
+                    .modal-content {
+                        width: calc(100vw - 24px);
+                    }
+
+                    .media-grid {
+                        grid-template-columns: repeat(auto-fill, minmax(var(--media-card-width), var(--media-card-width)));
+                    }
+                }
             </style>
             <div id="doubao-nomark-btn" title="提取无水印素材">
                 📷
@@ -961,12 +1168,17 @@
             </div>
             <div id="doubao-nomark-modal">
                 <div class="modal-content">
-                    <div class="modal-header">
-                        <div class="modal-header-left">
-                            <h3>无水印素材</h3>
-                            <div class="subtitle" id="image-subtitle">共 0 张图片</div>
+                    <div class="modal-topbar">
+                        <div class="media-tabs" role="tablist" aria-label="素材类型">
+                            <button class="media-tab active" type="button" data-tab="image" role="tab" aria-selected="true">图片(0)</button>
+                            <button class="media-tab" type="button" data-tab="video" role="tab" aria-selected="false">视频(0)</button>
                         </div>
-                        <button class="close-btn">×</button>
+                        <div class="modal-actions">
+                            <button class="top-action-btn btn-select-all" type="button">全选</button>
+                            <button class="top-action-btn btn-clear-selection" type="button">取消选择</button>
+                            <button class="top-action-btn btn-batch-download" type="button">批量下载</button>
+                            <button class="close-btn" type="button">×</button>
+                        </div>
                     </div>
                     <div class="modal-body">
                         <div class="media-grid" id="media-container"></div>
@@ -993,10 +1205,17 @@
         const modal = document.getElementById('doubao-nomark-modal');
         const closeBtn = modal.querySelector('.close-btn');
         const mediaContainer = document.getElementById('media-container');
-        const imageSubtitle = document.getElementById('image-subtitle');
+        const tabButtons = modal.querySelectorAll('.media-tab');
+        const selectAllBtn = modal.querySelector('.btn-select-all');
+        const clearSelectionBtn = modal.querySelector('.btn-clear-selection');
+        const batchDownloadBtn = modal.querySelector('.btn-batch-download');
 
         let currentImages = [];
         let currentVideos = [];
+        let activeTab = 'image';
+        let batchDownloading = false;
+        let batchCancelRequested = false;
+        let currentDownloadTask = null;
 
         function formatDuration(sec) {
             if (!sec || sec <= 0) return '';
@@ -1006,6 +1225,15 @@
             return `${m}:${r.toString().padStart(2, '0')}`;
         }
 
+        function updateTabLabels() {
+            tabButtons.forEach(btn => {
+                const isImageTab = btn.dataset.tab === 'image';
+                btn.textContent = isImageTab ? `图片(${currentImages.length})` : `视频(${currentVideos.length})`;
+                btn.classList.toggle('active', btn.dataset.tab === activeTab);
+                btn.setAttribute('aria-selected', btn.dataset.tab === activeTab ? 'true' : 'false');
+            });
+        }
+
         function updateImageCount() {
             const images = extractImages();
             const videos = extractVideos();
@@ -1013,18 +1241,110 @@
             currentVideos = videos;
             const totalCount = images.length + videos.length;
             floatingBtn.querySelector('.count').textContent = totalCount;
-            imageSubtitle.textContent = `共 ${images.length} 张图片 · ${videos.length} 个视频`;
+            updateTabLabels();
             return { images, videos };
         }
 
-        function renderMedia(images, videos) {
-            const mediaItems = [
-                ...images.map((image, index) => ({ type: 'image', data: image, index })),
-                ...videos.map((video, index) => ({ type: 'video', data: video, index })),
-            ];
+        function getMediaList(type = activeTab) {
+            return type === 'image' ? currentImages : currentVideos;
+        }
+
+        function getMediaItem(type, index) {
+            return getMediaList(type)[index] || null;
+        }
+
+        function clearAllSelections() {
+            mediaContainer.querySelectorAll('.media-select').forEach(input => {
+                input.checked = false;
+            });
+        }
+
+        function setCurrentTabSelection(checked) {
+            mediaContainer.querySelectorAll(`.media-select[data-type="${activeTab}"]`).forEach(input => {
+                input.checked = checked;
+            });
+        }
+
+        function getSelectedCurrentMediaItems() {
+            return Array.from(mediaContainer.querySelectorAll(`.media-select[data-type="${activeTab}"]:checked`))
+                .map(input => {
+                    const index = parseInt(input.dataset.index, 10);
+                    const data = getMediaItem(activeTab, index);
+                    return data ? { type: activeTab, index, data } : null;
+                })
+                .filter(Boolean);
+        }
+
+        function updateBatchButton() {
+            batchDownloadBtn.textContent = batchDownloading ? '取消下载' : '批量下载';
+            batchDownloadBtn.classList.toggle('danger', batchDownloading);
+        }
+
+        function cancelBatchDownload() {
+            if (!batchDownloading) return;
+            batchCancelRequested = true;
+            if (currentDownloadTask) {
+                currentDownloadTask.abort();
+            }
+        }
+
+        async function runBatchDownload() {
+            if (batchDownloading) {
+                cancelBatchDownload();
+                return;
+            }
+
+            const selectedItems = getSelectedCurrentMediaItems();
+            if (selectedItems.length === 0) {
+                alert('请先选择要下载的素材');
+                return;
+            }
+
+            batchDownloading = true;
+            batchCancelRequested = false;
+            updateBatchButton();
+
+            for (const item of selectedItems) {
+                if (batchCancelRequested) break;
+
+                const filename = getDownloadFilename(item.type, item.index, item.data.url);
+                currentDownloadTask = createDownloadTask(item.data.url, filename);
+
+                try {
+                    await currentDownloadTask.promise;
+                } catch (error) {
+                    if (batchCancelRequested || error?.message === '下载已取消') {
+                        break;
+                    }
+                    console.error('[无印豆包] 批量下载单项失败:', error);
+                } finally {
+                    currentDownloadTask = null;
+                }
+            }
+
+            batchDownloading = false;
+            batchCancelRequested = false;
+            updateBatchButton();
+        }
+
+        function renderEmptyState(type) {
+            const isImage = type === 'image';
+            mediaContainer.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">${isImage ? '🖼️' : '🎬'}</div>
+                    <div class="empty-state-text">当前页面没有找到${isImage ? '图片' : '视频'}</div>
+                    <div class="empty-state-desc">可以切换到另一个标签查看已提取的素材</div>
+                </div>
+            `;
+        }
+
+        function renderMedia(type = activeTab) {
+            const mediaItems = type === 'image'
+                ? currentImages.map((image, index) => ({ type: 'image', data: image, index }))
+                : currentVideos.map((video, index) => ({ type: 'video', data: video, index }));
 
             if (mediaItems.length === 0) {
-                mediaContainer.innerHTML = '';
+                renderEmptyState(type);
                 return;
             }
 
@@ -1039,12 +1359,12 @@
                                 ${resolution ? `<div class="image-info">${resolution}</div>` : ''}
                             </div>
                             <div class="video-meta">
-                                <span class="video-meta-item">🖼 图片</span>
-                                ${resolution ? `<span class="video-meta-item">📐 ${resolution}</span>` : ''}
+                                ${resolution ? `<span class="video-meta-item">${resolution}</span>` : ''}
                             </div>
                             <div class="video-actions">
-                                <button class="action-btn btn-media-download" data-type="image" data-url="${image.url}" data-index="${item.index}">下载</button>
-                                <button class="action-btn btn-media-copy" data-url="${image.url}">复制地址</button>
+                                <button class="action-btn btn-media-download" data-type="image" data-index="${item.index}">下载</button>
+                                <button class="action-btn btn-media-copy" data-type="image" data-index="${item.index}">地址</button>
+                                <input class="media-select" type="checkbox" data-type="image" data-index="${item.index}" aria-label="选择图片 ${item.index + 1}">
                             </div>
                         </div>
                     `;
@@ -1057,30 +1377,43 @@
                 return `
                     <div class="media-card">
                         <div class="media-preview">
-                            <video src="${video.url}" controls preload="none" playsinline${posterAttr}></video>
+                            <video src="${video.url}" preload="none" playsinline${posterAttr}></video>
+                            <div class="video-click-zone video-click-top" data-index="${item.index}" aria-label="选择视频 ${item.index + 1}"></div>
+                            <div class="video-click-zone video-click-bottom" data-index="${item.index}" aria-label="播放或暂停视频 ${item.index + 1}">
+                                <div class="video-control-overlay">
+                                    <span class="video-play-indicator">▶</span>
+                                </div>
+                            </div>
                         </div>
                         <div class="video-meta">
-                            <span class="video-meta-item">🎬 视频</span>
-                            ${resolution ? `<span class="video-meta-item">📐 ${resolution}</span>` : ''}
+                            ${resolution ? `<span class="video-meta-item">${resolution}</span>` : ''}
                             ${duration ? `<span class="video-meta-item">⏱ ${duration}</span>` : ''}
-                            ${video.definition ? `<span class="video-meta-item">清晰度 ${video.definition}</span>` : ''}
                         </div>
                         <div class="video-actions">
-                            <button class="action-btn btn-media-download" data-type="video" data-url="${video.url}" data-index="${item.index}">下载</button>
-                            <button class="action-btn btn-media-copy" data-url="${video.url}">复制地址</button>
+                            <button class="action-btn btn-media-download" data-type="video" data-index="${item.index}">下载</button>
+                            <button class="action-btn btn-media-copy" data-type="video" data-index="${item.index}">地址</button>
+                            <input class="media-select" type="checkbox" data-type="video" data-index="${item.index}" aria-label="选择视频 ${item.index + 1}">
                         </div>
                     </div>
                 `;
             }).join('');
 
             mediaContainer.querySelectorAll('.btn-media-download').forEach(btn => {
-                btn.addEventListener('click', (e) => {
+                btn.addEventListener('click', async (e) => {
                     e.stopPropagation();
                     const type = btn.dataset.type;
-                    const url = btn.dataset.url;
-                    const index = parseInt(btn.dataset.index, 10) + 1;
-                    const filename = type === 'video' ? `doubao_video_${index}.mp4` : `doubao_image_${index}.png`;
-                    downloadImage(url, filename);
+                    const index = parseInt(btn.dataset.index, 10);
+                    const media = getMediaItem(type, index);
+                    if (!media) return;
+
+                    btn.textContent = '下载中';
+                    const filename = getDownloadFilename(type, index, media.url);
+                    const success = await downloadImage(media.url, filename);
+                    if (!success) {
+                        btn.textContent = '下载';
+                        return;
+                    }
+
                     btn.classList.add('success');
                     btn.textContent = '✓ 已下载';
                     setTimeout(() => {
@@ -1093,24 +1426,78 @@
             mediaContainer.querySelectorAll('.btn-media-copy').forEach(btn => {
                 btn.addEventListener('click', async (e) => {
                     e.stopPropagation();
-                    const url = btn.dataset.url;
+                    const type = btn.dataset.type;
+                    const index = parseInt(btn.dataset.index, 10);
+                    const media = getMediaItem(type, index);
+                    if (!media) return;
+
                     try {
-                        await navigator.clipboard.writeText(url);
+                        await navigator.clipboard.writeText(media.url);
                         btn.classList.add('success');
                         btn.textContent = '✓ 已复制';
                         setTimeout(() => {
                             btn.classList.remove('success');
-                            btn.textContent = '复制地址';
+                            btn.textContent = '地址';
                         }, 2000);
                     } catch (err) {
                         console.error('复制失败:', err);
                     }
                 });
             });
+
+            mediaContainer.querySelectorAll('.media-card').forEach(card => {
+                const checkbox = card.querySelector('.media-select');
+                if (!checkbox) return;
+
+                card.querySelector('.media-preview img')?.addEventListener('click', () => {
+                    checkbox.checked = !checkbox.checked;
+                });
+
+                card.querySelector('.video-click-top')?.addEventListener('click', () => {
+                    checkbox.checked = !checkbox.checked;
+                });
+            });
+
+            mediaContainer.querySelectorAll('.video-click-bottom').forEach(zone => {
+                zone.addEventListener('click', () => {
+                    const preview = zone.closest('.media-preview');
+                    const video = preview?.querySelector('video');
+                    const indicator = zone.querySelector('.video-play-indicator');
+                    if (!video || !indicator) return;
+
+                    if (video.paused) {
+                        video.play().then(() => {
+                            indicator.textContent = 'Ⅱ';
+                        }).catch(err => {
+                            console.error('视频播放失败:', err);
+                        });
+                    } else {
+                        video.pause();
+                        indicator.textContent = '▶';
+                    }
+                });
+            });
+
+            mediaContainer.querySelectorAll('.media-preview video').forEach(video => {
+                video.addEventListener('pause', () => {
+                    const indicator = video.closest('.media-preview')?.querySelector('.video-play-indicator');
+                    if (indicator) indicator.textContent = '▶';
+                });
+                video.addEventListener('play', () => {
+                    const indicator = video.closest('.media-preview')?.querySelector('.video-play-indicator');
+                    if (indicator) indicator.textContent = 'Ⅱ';
+                });
+                video.addEventListener('ended', () => {
+                    const indicator = video.closest('.media-preview')?.querySelector('.video-play-indicator');
+                    if (indicator) indicator.textContent = '▶';
+                });
+            });
         }
 
         floatingBtn.addEventListener('click', () => {
             const { images, videos } = updateImageCount();
+            activeTab = images.length === 0 && videos.length > 0 ? 'video' : 'image';
+            updateTabLabels();
 
             if (images.length === 0 && videos.length === 0) {
                 mediaContainer.innerHTML = `
@@ -1120,11 +1507,30 @@
                     </div>
                 `;
             } else {
-                renderMedia(images, videos);
+                renderMedia(activeTab);
             }
 
             modal.classList.add('show');
         });
+
+        tabButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                clearAllSelections();
+                activeTab = btn.dataset.tab;
+                updateTabLabels();
+                renderMedia(activeTab);
+            });
+        });
+
+        selectAllBtn.addEventListener('click', () => {
+            setCurrentTabSelection(true);
+        });
+
+        clearSelectionBtn.addEventListener('click', () => {
+            setCurrentTabSelection(false);
+        });
+
+        batchDownloadBtn.addEventListener('click', runBatchDownload);
 
         closeBtn.addEventListener('click', () => {
             modal.classList.remove('show');
@@ -1145,7 +1551,7 @@
     function initScript() {
         console.log('[无印豆包] 脚本已加载');
         
-        if (window.location.pathname.includes('/chat/')) {
+        if (pageWindow.location.pathname.includes('/chat/')) {
             createFloatingButton();
             return;
         }
@@ -1164,7 +1570,7 @@
             }
         }
 
-        if (window.location.hostname.includes('doubao.com') && window.location.pathname.includes('/thread/')) {
+        if (pageWindow.location.hostname.includes('doubao.com') && pageWindow.location.pathname.includes('/thread/')) {
             chatImages = extractSharePageImages();
         }
         
