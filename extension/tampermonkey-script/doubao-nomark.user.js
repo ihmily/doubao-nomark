@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         无印豆包 - 素材提取
 // @namespace    http://tampermonkey.net/
-// @version      1.0.10
+// @version      1.0.13
 // @description  在豆包对话页面提取无水印图片/视频，支持一键下载
 // @description:en Extract watermark-free images/videos from Doubao chat pages with one-click download
 // @author       无印豆包
@@ -18,7 +18,7 @@
 // @connect      *
 // @license      MIT
 // @run-at       document-end
-// @icon         data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>📷</text></svg>
+// @icon         data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%221em%22%20height%3D%221em%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20d%3D%22M0%200h24v24H0z%22%20fill%3D%22none%22%2F%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%3E%3Cpath%20d%3D%22M2.5%2013.5v-7h19v7c0%203.771%200%205.657-1.172%206.828S17.272%2021.5%2013.5%2021.5h-3c-3.771%200-5.657%200-6.828-1.172S2.5%2017.271%202.5%2013.5m0-7l.6-.8c1.178-1.57%201.767-2.355%202.611-2.778C6.556%202.5%207.537%202.5%209.5%202.5h5c1.963%200%202.944%200%203.789.422c.845.423%201.433%201.208%202.611%202.778l.6.8%22%2F%3E%3Cpath%20d%3D%22M15%2014.5s-2.21%203-3%203s-3-3-3-3m3%202.5v-6.5%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E
 // ==/UserScript==
 
 (function() {
@@ -33,13 +33,22 @@
     let chatImages = [];
     let chatVideos = [];
     let floatingBtnElement = null;
+    let mountObserver = null;
+
+    const NOMARK_BUTTON_HOST_ID = 'doubao-nomark-button-host';
+    const NOMARK_ICON_SVG = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24">
+            <path d="M0 0h24v24H0z" fill="none" />
+            <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5">
+                <path d="M2.5 13.5v-7h19v7c0 3.771 0 5.657-1.172 6.828S17.272 21.5 13.5 21.5h-3c-3.771 0-5.657 0-6.828-1.172S2.5 17.271 2.5 13.5m0-7l.6-.8c1.178-1.57 1.767-2.355 2.611-2.778C6.556 2.5 7.537 2.5 9.5 2.5h5c1.963 0 2.944 0 3.789.422c.845.423 1.433 1.208 2.611 2.778l.6.8" />
+                <path d="M15 14.5s-2.21 3-3 3s-3-3-3-3m3 2.5v-6.5" />
+            </g>
+        </svg>
+    `;
+    const DBX_BUTTON_CLASS = 'flex shrink-0 items-center justify-center font-[400] whitespace-nowrap select-none [&_svg]:shrink-0 text-[16px] leading-[24px] gap-[4px] rounded-dbx-sm p-[4px] transition-colors duration-150 ease-out bg-transparent hover:bg-dbx-fill-trans-10-hover [&:is(:where(:is([aria-haspopup="dialog"],[aria-haspopup="menu"])[data-state="open"]:not([data-slot="alert-dialog-trigger"])),:where(:is([aria-haspopup="dialog"],[aria-haspopup="menu"])[data-state="open"]:not([data-slot="alert-dialog-trigger"])_*))]:bg-dbx-fill-trans-10-hover outline-transparent outline-none [&_svg:not([class*="size-"])]:size-[18px] [&_svg[data-dbx-name=button-caret]:not([class*="size-"])]:size-[12px] relative h-fit cursor-pointer text-(--dbx-text-primary)';
 
     function updateButtonCount() {
-        if (!floatingBtnElement) return;
-        const countElement = floatingBtnElement.querySelector('.count');
-        if (!countElement) return;
-        const imgCount = chatImages.length;
-        countElement.textContent = imgCount + chatVideos.length;
+        setButtonCount(chatImages.length + chatVideos.length);
     }
 
     function addChatVideo(videoInfo) {
@@ -684,6 +693,104 @@
         return `${prefix}_${index + 1}${getMediaExtension(url, type)}`;
     }
 
+    function isOwnElement(el) {
+        if (!el) return false;
+        return Boolean(el.closest && (
+            el.closest(`#${NOMARK_BUTTON_HOST_ID}`) ||
+            el.closest('#doubao-nomark-modal')
+        ));
+    }
+
+    function isVisible(el) {
+        if (!el || !el.isConnected || isOwnElement(el)) return false;
+        const style = window.getComputedStyle(el);
+        if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
+            return false;
+        }
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0
+            && rect.top < window.innerHeight && rect.left < window.innerWidth;
+    }
+
+    function findTopBarMount() {
+        const headerLeftButton = Array.from(document.querySelectorAll('button[data-dbx-name="button"]')).find(button => {
+            if (!isVisible(button)) return false;
+
+            const container = button.parentElement;
+            if (!container || !container.matches('div.flex-row.flex')) return false;
+
+            const className = String(container.className || '');
+            if (!className.includes('gap-8')) return false;
+            if (!className.includes('overflow-hidden') && !className.includes('pl-g-header-left-padding')) return false;
+
+            const rect = container.getBoundingClientRect();
+            return rect.top < 100 && rect.height > 20 && rect.height < 80;
+        });
+
+        return headerLeftButton?.parentElement || null;
+    }
+
+    function getNomarkButtonHost() {
+        return document.getElementById(NOMARK_BUTTON_HOST_ID) ||
+            floatingBtnElement?.closest(`#${NOMARK_BUTTON_HOST_ID}`) ||
+            null;
+    }
+
+    function mountNomarkButtonHost() {
+        const buttonHost = getNomarkButtonHost();
+        if (!buttonHost || !document.body) return;
+
+        const mount = findTopBarMount();
+        if (mount) {
+            mount.classList.remove('overflow-hidden');
+            mount.style.overflow = 'visible';
+
+            const nativeButtons = Array.from(mount.children).filter(child => {
+                return child.matches?.('button[data-dbx-name="button"]') && !isOwnElement(child);
+            });
+            const anchor = nativeButtons[nativeButtons.length - 1];
+            const nextNode = anchor?.nextSibling || null;
+
+            if (buttonHost.parentElement !== mount || buttonHost.previousSibling !== anchor) {
+                mount.insertBefore(buttonHost, nextNode);
+            }
+            buttonHost.classList.remove('fallback');
+            return;
+        }
+
+        if (buttonHost.parentElement !== document.body) {
+            document.body.appendChild(buttonHost);
+        }
+        buttonHost.classList.add('fallback');
+    }
+
+    function startMountObserver() {
+        if (mountObserver || !document.documentElement) return;
+
+        mountObserver = new MutationObserver(() => {
+            const buttonHost = getNomarkButtonHost();
+            const mount = findTopBarMount();
+            if (mount) {
+                mount.classList.remove('overflow-hidden');
+                mount.style.overflow = 'visible';
+            }
+            if (!buttonHost || !buttonHost.isConnected || buttonHost.classList.contains('fallback')) {
+                mountNomarkButtonHost();
+            }
+        });
+        mountObserver.observe(document.documentElement, { childList: true, subtree: true });
+    }
+
+    function setButtonCount(count) {
+        if (!floatingBtnElement) return;
+        const countElement = floatingBtnElement.querySelector('.count');
+        if (!countElement) return;
+
+        const totalCount = Number(count) || 0;
+        countElement.textContent = String(totalCount);
+        countElement.classList.toggle('show', totalCount > 0);
+    }
+
     function createFloatingButton() {
         const button = document.createElement('div');
         button.innerHTML = `
@@ -692,46 +799,71 @@
                     box-sizing: border-box;
                 }
                 
-                #doubao-nomark-btn {
+                #${NOMARK_BUTTON_HOST_ID} {
+                    position: relative;
+                    z-index: 2147483646;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    flex-shrink: 0;
+                    line-height: 1;
+                    overflow: visible;
+                    color: var(--dbx-text-primary, currentColor);
+                }
+
+                #${NOMARK_BUTTON_HOST_ID}.fallback {
                     position: fixed;
                     right: 24px;
                     bottom: 24px;
-                    z-index: 9999;
+                }
+
+                #${NOMARK_BUTTON_HOST_ID}.fallback #doubao-nomark-btn {
                     width: 48px;
                     height: 48px;
                     background: #ffffff;
                     border: 1px solid #e0e0e0;
                     border-radius: 8px;
-                    cursor: pointer;
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
                     display: flex;
                     align-items: center;
                     justify-content: center;
                     font-size: 20px;
-                    transition: all 0.2s ease;
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+                    transition: border-color 0.2s ease, box-shadow 0.2s ease;
                 }
-                
-                #doubao-nomark-btn:hover {
+
+                #${NOMARK_BUTTON_HOST_ID}.fallback #doubao-nomark-btn:hover {
                     border-color: #1f1f1f;
                     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+                }
+
+                #doubao-nomark-btn {
+                    overflow: visible;
+                    color: var(--dbx-text-primary, currentColor);
                 }
                 
                 #doubao-nomark-btn .count {
                     position: absolute;
-                    top: -6px;
+                    top: -7px;
                     right: -6px;
-                    min-width: 20px;
-                    height: 20px;
-                    padding: 0 6px;
-                    background: #1f1f1f;
+                    z-index: 1;
+                    display: none;
+                    min-width: 13px;
+                    height: 13px;
+                    padding: 0 3px;
+                    background: #ff4d4f;
                     color: #ffffff;
-                    border-radius: 10px;
-                    font-size: 11px;
+                    border-radius: 999px;
+                    font: 600 8px/13px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
                     font-weight: 600;
-                    display: flex;
                     align-items: center;
                     justify-content: center;
-                    line-height: 1;
+                    text-align: center;
+                    pointer-events: none;
+                    box-shadow: 0 0 0 1.5px var(--dbx-bg-base, #ffffff);
+                }
+
+                #doubao-nomark-btn .count.show {
+                    display: flex;
                 }
                 
                 #doubao-nomark-modal {
@@ -1162,9 +1294,12 @@
                     }
                 }
             </style>
-            <div id="doubao-nomark-btn" title="提取无水印素材">
-                📷
-                <span class="count">0</span>
+            <div id="${NOMARK_BUTTON_HOST_ID}">
+                <button id="doubao-nomark-btn" type="button" title="提取无水印素材" aria-label="提取无水印素材" data-disabled="false" data-loading="false" data-dbx-name="button" class='${DBX_BUTTON_CLASS}'>
+                    <div class="min-w-0 truncate">${NOMARK_ICON_SVG}</div>
+                    <div class="absolute inset-[-6px] opacity-0"></div>
+                    <span class="count" aria-live="polite">0</span>
+                </button>
             </div>
             <div id="doubao-nomark-modal">
                 <div class="modal-content">
@@ -1199,10 +1334,16 @@
 
         document.body.appendChild(button);
 
+        let modal = document.getElementById('doubao-nomark-modal');
+        if (modal && modal.parentElement !== document.body) {
+            document.body.appendChild(modal);
+        }
+
         floatingBtnElement = document.getElementById('doubao-nomark-btn');
+        mountNomarkButtonHost();
+        startMountObserver();
 
         const floatingBtn = floatingBtnElement;
-        const modal = document.getElementById('doubao-nomark-modal');
         const closeBtn = modal.querySelector('.close-btn');
         const mediaContainer = document.getElementById('media-container');
         const tabButtons = modal.querySelectorAll('.media-tab');
@@ -1240,7 +1381,7 @@
             currentImages = images;
             currentVideos = videos;
             const totalCount = images.length + videos.length;
-            floatingBtn.querySelector('.count').textContent = totalCount;
+            setButtonCount(totalCount);
             updateTabLabels();
             return { images, videos };
         }
