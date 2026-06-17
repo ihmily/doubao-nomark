@@ -21,9 +21,15 @@ async def doubao_image_parse(url: str, return_raw: bool = False):
     except httpx.RequestError as e:
         raise ValueError(f"网络请求失败，请检查网络连接: {str(e)}")
 
-    match_json_str = re.search(
-        'data-script-src="modern-run-router-data-fn" data-fn-args="(.*?)" nonce="', html_str, re.DOTALL
-    )
+    match_json_str = None
+    match_pattern = [
+        'data-script-src="modern-run-router-data-fn" data-fn-args="(.*?)" nonce="',
+        'data-script-src="modern-run-window-fn" data-fn-name="mergeLoaderData" data-fn-args="(.*?)" nonce="',
+    ]
+    for pattern in match_pattern:
+        match_json_str = re.search(pattern, html_str, re.DOTALL)
+        if match_json_str:
+            break
 
     if not match_json_str:
         raise KeyError("无法解析页面数据，请确认链接是否有效")
@@ -31,7 +37,6 @@ async def doubao_image_parse(url: str, return_raw: bool = False):
     try:
         json_str = match_json_str.group(1).replace("&quot;", '"')
         json_data = json.loads(json_str)
-
         if return_raw:
             return json_data
 
@@ -44,13 +49,38 @@ async def doubao_image_parse(url: str, return_raw: bool = False):
                         continue
 
                     for m2 in message["content_block"]:
-                        json_data2 = json.loads(m2["content_v2"])
-                        if "creation_block" in json_data2:
+                        if m2.get("content_v2"):
+                            json_data2 = json.loads(m2["content_v2"])
+                        else:
+                            json_data2 = json.loads(m2["content"]) if isinstance(m2["content"], str) else m2["content"]
+
+                        if not json_data2.get("creation_block"):
+                            continue
+                        creations = json_data2["creation_block"]["creations"]
+
+                        for image in creations:
+                            image_raw = image["image"]["image_ori_raw"]
+                            image_raw["url"] = image_raw["url"].replace("&amp;", "&")
+                            image_list.append(image_raw)
+
+            elif isinstance(data, list) and data:
+                router_data_fn = json.loads(data[0]["routerDataFnArgs"][0])
+                message_snapshot = router_data_fn["data"]["message_snapshot"]["message_list"]
+                for message in message_snapshot:
+                    if not message.get("content_block"):
+                        continue
+
+                    for m2 in message["content_block"]:
+                        json_data2 = m2.get("content_v2") or m2.get("content")
+                        json_data2 = json.loads(json_data2) if isinstance(json_data2, str) else json_data2
+
+                        if json_data2.get("creation_block"):
                             creations = json_data2["creation_block"]["creations"]
                             for image in creations:
                                 image_raw = image["image"]["image_ori_raw"]
                                 image_raw["url"] = image_raw["url"].replace("&amp;", "&")
                                 image_list.append(image_raw)
+
     except KeyError as e:
         print(f"Exception: {e}")
         raise KeyError("页面结构发生变化，无法解析图片数据")
@@ -112,4 +142,5 @@ if __name__ == "__main__":
     import asyncio
 
     print(asyncio.run(doubao_image_parse("https://www.doubao.com/thread/aef4c7a4c78c2")))
+    # print(asyncio.run(doubao_image_parse("https://www.doubao.com/thread/xba6cbc09655f8f7fbeceb0ee9f8f3f44")))
     # print(asyncio.run(qianwen_image_parse("https://www.qianwen.com/share/chat/1b7641042a7c4f2fae8111f732c31f7f")))
