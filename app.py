@@ -7,10 +7,20 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, HttpUrl
 
+from urllib.parse import urlparse
+
 from doubao_parser.image import doubao_image_parse, qianwen_image_parse
 from doubao_parser.video import doubao_video_parse, yunque_video_parse
 
 app = FastAPI(title="无印豆包 API", description="从豆包|千问对话链接中提取图片和视频资源", version="1.0.4")
+
+ALLOWED_DOUBAO_HOSTS = {"doubao.com", "www.doubao.com"}
+ALLOWED_QIANWEN_HOSTS = {"qianwen.com", "www.qianwen.com"}
+
+
+def _host_matches(url: str, allowed_hosts: set[str]) -> bool:
+    hostname = (urlparse(url).hostname or "").lower()
+    return hostname in allowed_hosts or any(hostname.endswith(f".{host}") for host in allowed_hosts)
 
 if os.path.exists("icons"):
     app.mount("/icons", StaticFiles(directory="icons"), name="icons")
@@ -70,10 +80,13 @@ async def root():
 @app.post("/parse", summary="解析豆包|千问对话图片")
 async def parse_doubao(request: DouBaoRequest):
     try:
-        if "doubao.com" in str(request.url):
-            result = await doubao_image_parse(str(request.url), return_raw=request.return_raw)
+        url_str = str(request.url)
+        if _host_matches(url_str, ALLOWED_DOUBAO_HOSTS):
+            result = await doubao_image_parse(url_str, return_raw=request.return_raw)
+        elif _host_matches(url_str, ALLOWED_QIANWEN_HOSTS):
+            result = await qianwen_image_parse(url_str, return_raw=request.return_raw)
         else:
-            result = await qianwen_image_parse(str(request.url), return_raw=request.return_raw)
+            raise HTTPException(status_code=400, detail="不支持的链接域名")
 
         if request.return_raw:
             return {"success": True, "data": result}
@@ -91,10 +104,12 @@ async def parse_doubao(request: DouBaoRequest):
 @app.get("/parse", summary="解析豆包|千问对话图片(GET)")
 async def parse_doubao_get(url: str, return_raw: bool = False):
     try:
-        if "doubao.com" in url:
+        if _host_matches(url, ALLOWED_DOUBAO_HOSTS):
             result = await doubao_image_parse(url, return_raw=return_raw)
-        else:
+        elif _host_matches(url, ALLOWED_QIANWEN_HOSTS):
             result = await qianwen_image_parse(url, return_raw=return_raw)
+        else:
+            raise HTTPException(status_code=400, detail="不支持的链接域名")
 
         if return_raw:
             return {"success": True, "data": result}
@@ -113,10 +128,12 @@ async def parse_doubao_get(url: str, return_raw: bool = False):
 async def parse_video(request: VideoRequest):
     try:
         url_str = str(request.url)
-        if "doubao.com" in url_str:
+        if _host_matches(url_str, ALLOWED_DOUBAO_HOSTS):
             video_data = await doubao_video_parse(url_str, return_raw=request.return_raw)
+        elif _host_matches(url_str, ALLOWED_QIANWEN_HOSTS):
+            video_data = await yunque_video_parse(url_str, return_raw=request.return_raw)
         else:
-            video_data = await yunque_video_parse(str(request.url), return_raw=request.return_raw)
+            raise HTTPException(status_code=400, detail="不支持的链接域名")
 
         if request.return_raw:
             return {"success": True, "data": video_data}
@@ -134,10 +151,12 @@ async def parse_video(request: VideoRequest):
 @app.get("/parse-video", summary="解析豆包|云雀视频(GET)")
 async def parse_video_get(url: str, return_raw: bool = False):
     try:
-        if "doubao.com" in url:
+        if _host_matches(url, ALLOWED_DOUBAO_HOSTS):
             video_data = await doubao_video_parse(url, return_raw=return_raw)
-        else:
+        elif _host_matches(url, ALLOWED_QIANWEN_HOSTS):
             video_data = await yunque_video_parse(url, return_raw=return_raw)
+        else:
+            raise HTTPException(status_code=400, detail="不支持的链接域名")
         if return_raw:
             return {"success": True, "data": video_data}
 
