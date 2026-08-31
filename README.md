@@ -232,7 +232,7 @@ video_data = await doubao_video_parse(
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=ihmily/doubao-nomark&type=date&legend=top-left)](https://www.star-history.com/#ihmily/doubao-nomark&type=date&legend=top-left)
+[![Star History Chart](https://star-history.dera.page/svg?repos=ihmily/doubao-nomark&type=date&legend=top-left)](https://star-history.dera.page/#ihmily/doubao-nomark&type=date&legend=top-left)
 
 ## 许可证
 
