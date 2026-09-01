@@ -334,67 +334,57 @@
         }
     }
 
+    // Resolve the creation node first, then request the original download asset.
     async function getDoubaoVideoInfo(vid) {
-        if (!vid) {
-            console.warn('[无印豆包] getDoubaoVideoInfo: vid 为空');
-            return null;
-        }
+        if (!vid) return null;
 
-        const params = {
-            version_code: '20800',
-            language: 'zh-CN',
-            device_platform: 'web',
-            aid: '497858',
-            real_aid: '497858',
-            pkg_type: 'release_version',
-            device_id: '',
-            pc_version: '2.51.7',
-            region: '',
-            sys_region: '',
-            samantha_web: '1',
-            'use-olympus-account': '1',
-            web_tab_id: '',
-        };
-
-        const queryString = new URLSearchParams(params).toString();
-        const apiUrl = `https://www.doubao.com/samantha/media/get_play_info?${queryString}`;
-
-        try {
-            const response = await fetch(apiUrl, {
+        const postAispace = async (path, body) => {
+            const response = await fetch(`https://www.doubao.com/samantha/aispace/${path}`, {
                 method: 'POST',
                 credentials: 'include',
                 headers: {
+                    Accept: 'application/json, text/plain, */*',
                     'Content-Type': 'application/json',
-                    'origin': 'https://www.doubao.com',
+                    Origin: 'https://www.doubao.com',
+                    Referer: 'https://www.doubao.com/',
                 },
-                body: JSON.stringify({ key: vid }),
+                body: JSON.stringify(body),
             });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return response.json();
+        };
 
-            const result = await response.json();
+        try {
+            const homepage = await postAispace('homepage', {});
+            const creation = (homepage?.data?.children || []).find(item => item?.name === '我的创作');
+            if (!creation?.id) throw new Error('未找到我的创作空间');
 
-            if (!result || !result.data) {
-                console.warn('[无印豆包] API返回数据格式异常，可能链接已失效:', result);
-                return null;
-            }
+            const nodeInfo = await postAispace('node_info?aid=582478', { node_id: creation.id });
+            const node = (nodeInfo?.data?.children || []).find(item => item?.key === vid);
+            if (!node?.id) throw new Error(`未找到视频节点: ${vid}`);
 
-            const originalMediaInfo = result.data.original_media_info || {};
-            const meta = originalMediaInfo.meta || {};
+            const downloadInfo = await postAispace('get_download_info?aid=582478', {
+                requests: [{ node_id: node.id }],
+            });
+            const infos = downloadInfo?.data?.download_infos;
+            const info = Array.isArray(infos) ? infos.find(item => item?.main_url) : null;
+            if (!info) throw new Error('响应中没有无水印 main_url');
 
+            const meta = info.meta || info.video_info || {};
             const videoInfo = {
-                vid: vid,
-                width: meta.width || 0,
-                height: meta.height || 0,
-                definition: meta.definition || '',
-                duration: meta.duration || 0,
-                codec_type: meta.codec_type || '',
-                poster_url: result.data.poster_url || '',
-                url: originalMediaInfo.main_url || '',
+                vid,
+                width: meta.width || info.width || 0,
+                height: meta.height || info.height || 0,
+                definition: meta.definition || info.definition || '',
+                duration: meta.duration || info.duration || 0,
+                codec_type: meta.codec_type || info.codec_type || '',
+                poster_url: info.poster_url || info.cover_url || '',
+                url: info.main_url,
             };
-
             console.log('[无印豆包] 获取无水印视频成功:', vid, videoInfo.url);
             return videoInfo;
         } catch (e) {
-            console.error('[无印豆包] 获取视频播放信息失败:', e);
+            console.error('[无印豆包] 获取无水印视频失败:', vid, e);
             return null;
         }
     }
@@ -1029,7 +1019,7 @@
                 return `
                     <div class="media-card">
                         <div class="media-preview">
-                            <video src="${video.url}" controls preload="none" playsinline${posterAttr}></video>
+                            <video src="${video.url}" controls preload="auto" playsinline${posterAttr}></video>
                         </div>
                         <div class="video-meta">
                             <span class="video-meta-item">🎬 视频</span>
