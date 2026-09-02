@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "无印豆包 - 素材提取",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "在豆包/千问对话页面提取无水印图片/视频，支持一键下载",
   "icons": {
     "16": "icons/icon16.png",
@@ -24,9 +24,28 @@
         "https://www.qianwen.com/chat/*",
         "https://www.qianwen.com/share/chat/*"
       ],
+      "js": ["asset-loader.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://www.doubao.com/thread/*",
+        "https://www.doubao.com/chat/*",
+        "https://www.qianwen.com/chat/*",
+        "https://www.qianwen.com/share/chat/*"
+      ],
       "js": ["content.js"],
       "run_at": "document_start",
       "world": "MAIN"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["panel.html", "panel.js", "themes.js", "assets/panel-bg.png"],
+      "matches": [
+        "https://www.doubao.com/*",
+        "https://www.qianwen.com/*"
+      ]
     }
   ],
   "action": {
