@@ -105,7 +105,7 @@ from doubao_parser.image import doubao_image_parse
 # 异步调用
 result = await doubao_image_parse(
     url="https://www.doubao.com/thread/xxxxxx",
-    return_raw=False  # False: 返回简化格式, True: 返回原始数据
+    return_raw=False,  # False: 返回简化格式, True: 返回原始数据
 )
 ```
 
@@ -115,10 +115,7 @@ result = await doubao_image_parse(
 from doubao_parser.video import doubao_video_parse
 
 # 异步调用
-video_data = await doubao_video_parse(
-    url="https://www.doubao.com/thread/xxxxxx",
-    return_raw=False
-)
+video_data = await doubao_video_parse(url="https://www.doubao.com/thread/xxxxxx", return_raw=False)
 ```
 
 具体代码参考doubao_parser目录下代码。

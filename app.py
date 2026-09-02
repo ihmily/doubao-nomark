@@ -1,4 +1,5 @@
 import os
+from urllib.parse import urlparse
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -6,8 +7,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, HttpUrl
-
-from urllib.parse import urlparse
 
 from doubao_parser.image import doubao_image_parse, qianwen_image_parse
 from doubao_parser.video import doubao_video_parse, yunque_video_parse
@@ -21,6 +20,7 @@ ALLOWED_QIANWEN_HOSTS = {"qianwen.com", "www.qianwen.com"}
 def _host_matches(url: str, allowed_hosts: set[str]) -> bool:
     hostname = (urlparse(url).hostname or "").lower()
     return hostname in allowed_hosts or any(hostname.endswith(f".{host}") for host in allowed_hosts)
+
 
 if os.path.exists("icons"):
     app.mount("/icons", StaticFiles(directory="icons"), name="icons")
