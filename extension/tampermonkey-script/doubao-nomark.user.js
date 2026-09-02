@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         无印豆包 - 素材提取
 // @namespace    http://tampermonkey.net/
-// @version      1.0.13
+// @version      1.0.18
 // @description  在豆包对话页面提取无水印图片/视频，支持一键下载
 // @description:en Extract watermark-free images/videos from Doubao chat pages with one-click download
 // @author       无印豆包
@@ -14,6 +14,7 @@
 // @match        https://www.qianwen.com/chat/*
 // @match        https://www.qianwen.com/share/chat/*
 // @grant        GM_download
+// @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
 // @connect      *
 // @license      MIT
@@ -34,8 +35,13 @@
     let chatVideos = [];
     let floatingBtnElement = null;
     let mountObserver = null;
+    const processedFallbackApis = new Set();
 
     const NOMARK_BUTTON_HOST_ID = 'doubao-nomark-button-host';
+    const QAAB_SALT_HEX = '4dd4c2e6b83162090e52b3c7a6733ba4'
+        + '1cb2462b829ab58a196b39db57177524'
+        + 'f49baf7f08e8d68d26a72e37c1a95a2f'
+        + '1f05a51892aef2949732b62a38aadd58';
     const NOMARK_ICON_SVG = `
         <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24">
             <path d="M0 0h24v24H0z" fill="none" />
@@ -51,6 +57,44 @@
         setButtonCount(chatImages.length + chatVideos.length);
     }
 
+    function normalizeImageUrl(url) {
+        return typeof url === 'string' ? url.replace(/&amp;/g, '&') : '';
+    }
+
+    function addChatImage(imageInfo, logLabel = '[无印豆包] 获取到新图片') {
+        const url = normalizeImageUrl(imageInfo?.url);
+        if (!url) return false;
+
+        const width = imageInfo.width || 0;
+        const height = imageInfo.height || 0;
+        const existingImage = chatImages.find(img => img.url === url);
+        if (existingImage) {
+            if (!existingImage.width && width) existingImage.width = width;
+            if (!existingImage.height && height) existingImage.height = height;
+            return false;
+        }
+
+        chatImages.push({ url, width, height });
+        console.log(`${logLabel}:`, url, `${width} × ${height}`);
+        updateButtonCount();
+        return true;
+    }
+
+    function getCreationImageInfo(creation) {
+        const imageData = creation?.image?.image_ori_raw;
+        if (typeof imageData === 'string') {
+            return { url: imageData, width: 0, height: 0 };
+        }
+        if (imageData && typeof imageData === 'object' && imageData.url) {
+            return {
+                url: imageData.url,
+                width: imageData.width || 0,
+                height: imageData.height || 0
+            };
+        }
+        return null;
+    }
+
     function addChatVideo(videoInfo) {
         if (!videoInfo || !videoInfo.url) return;
         if (chatVideos.find(v => v.vid === videoInfo.vid || v.url === videoInfo.url)) return;
@@ -61,13 +105,13 @@
 
     const originalXHROpen = pageWindow.XMLHttpRequest.prototype.open;
     const originalXHRSend = pageWindow.XMLHttpRequest.prototype.send;
-    
+
     pageWindow.XMLHttpRequest.prototype.open = function(method, url, ...args) {
         this._url = url;
         // console.log('[无印豆包] XHR open:', method, url);
         return originalXHROpen.apply(this, [method, url, ...args]);
     };
-    
+
     pageWindow.XMLHttpRequest.prototype.send = function(...args) {
         const url = this._url;
         this.addEventListener('load', function() {
@@ -78,13 +122,15 @@
                     // console.log('[无印豆包] downlink_body 存在:', !!data?.downlink_body);
                     // console.log('[无印豆包] pull_singe_chain_downlink_body 存在:', !!data?.downlink_body?.pull_singe_chain_downlink_body);
                     // console.log('[无印豆包] messages 存在:', !!data?.downlink_body?.pull_singe_chain_downlink_body?.messages);
-                    
+
                     const messages = data?.downlink_body?.pull_singe_chain_downlink_body?.messages;
                     if (messages && Array.isArray(messages)) {
                         console.log('[无印豆包] 开始解析 messages，数量:', messages.length);
                         parseChatHistoryImages(messages);
+                        processDoubaoFallbackVideos(data, this.responseText);
                     } else {
                         console.warn('[无印豆包] messages 不是数组或不存在');
+                        processDoubaoFallbackVideos(data, this.responseText);
                     }
                 } catch (e) {
                     console.error('[无印豆包] XHR 解析聊天数据失败:', e);
@@ -93,12 +139,31 @@
         });
         return originalXHRSend.apply(this, args);
     };
-    
+
     console.log('[无印豆包] XHR 拦截已安装');
 
     const originalFetch = pageWindow.fetch;
     pageWindow.fetch = async function(...args) {
         const url = args[0];
+        const requestUrl = typeof url === 'string' ? url : (url?.url || '');
+
+        if (requestUrl && requestUrl.includes('/im/chain/single')) {
+            const response = await originalFetch.apply(this, args);
+            response.clone().text().then(text => {
+                try {
+                    const data = JSON.parse(text);
+                    const messages = data?.downlink_body?.pull_singe_chain_downlink_body?.messages;
+                    if (Array.isArray(messages)) {
+                        console.log('[无印豆包] Fetch 解析 chain/single messages，数量:', messages.length);
+                        parseChatHistoryImages(messages);
+                    }
+                    processDoubaoFallbackVideos(data, text);
+                } catch (e) {
+                    console.warn('[无印豆包] Fetch chain/single 解析失败:', e);
+                }
+            }).catch(() => {});
+            return response;
+        }
 
         if (url && (typeof url === 'string') && url.includes('qianwen.com/api/v1/session/msg/list')) {
             console.log('[无印豆包] 检测到千问 session msg list 请求:', url);
@@ -128,11 +193,11 @@
 
         if (url && (typeof url === 'string') && url.includes('qianwen.com/api/v1/chat/snap')) {
             console.log('[无印豆包] 检测到千问 EventStream 请求:', url);
-            
+
             const response = await originalFetch.apply(this, args);
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
-            
+
             const stream = new NativeReadableStream({
                 async start(controller) {
                     let buffer = '';
@@ -141,10 +206,10 @@
                         const { done, value } = await reader.read();
                         if (done) break;
                         buffer += decoder.decode(value, { stream: true });
-                        
+
                         const lines = buffer.split('\n');
                         buffer = lines.pop();
-                        
+
                         for (const line of lines) {
                             if (line.trimEnd() === 'event:complete') {
                                 waitingForData = true;
@@ -161,43 +226,46 @@
                                 waitingForData = false;
                             }
                         }
-                        
+
                         controller.enqueue(value);
                     }
                     controller.close();
                 }
             });
-            
+
             return new NativeResponse(stream, {
                 headers: response.headers,
                 status: response.status,
                 statusText: response.statusText
             });
         }
-        
+
         if (url && url.includes('/chat/completion')) {
             console.log('[无印豆包] ✨ 检测到 EventStream 请求:', url);
-            
+
             const response = await originalFetch.apply(this, args);
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
-            
+
             const stream = new NativeReadableStream({
                 async start(controller) {
                     while (true) {
                         const { done, value } = await reader.read();
                         if (done) break;
-                        
+
                         const chunk = decoder.decode(value, { stream: true });
                         // console.log('[无印豆包] 收到数据块:', chunk.substring(0, 100));
-                        
+
                         const lines = chunk.split('\n');
                         for (const line of lines) {
                             if (line.startsWith('data: ')) {
                                 try {
                                     const jsonStr = line.substring(6);
-                                    if (jsonStr.includes('image_ori')) {
+                                    if (jsonStr.includes('image_ori') || jsonStr.includes('fallback_api')) {
                                         const data = JSON.parse(jsonStr);
+                                        if (jsonStr.includes('fallback_api')) {
+                                            processDoubaoFallbackVideos(data, jsonStr);
+                                        }
                                         if (data.event_data || data.patch_op) {
                                             parseStreamChunk(data);
                                         }
@@ -207,24 +275,24 @@
                                 }
                             }
                         }
-                        
+
                         // 传递数据给原始响应
                         controller.enqueue(value);
                     }
                     controller.close();
                 }
             });
-            
+
             return new NativeResponse(stream, {
                 headers: response.headers,
                 status: response.status,
                 statusText: response.statusText
             });
         }
-        
+
         return originalFetch.apply(this, args);
     };
-    
+
     console.log('[无印豆包] Fetch 拦截已安装');
 
     function parseQianwenMessages(messages) {
@@ -246,11 +314,7 @@
                     const imageObj = display?.image?.[0];
                     if (!imageObj?.url) continue;
                     const { url, width = 0, height = 0 } = imageObj;
-                    if (!chatImages.find(img => img.url === url)) {
-                        chatImages.push({ url, width, height });
-                        console.log('[无印豆包][千问] 获取到图片:', url, `${width} × ${height}`);
-                        updateButtonCount();
-                    }
+                    addChatImage({ url, width, height }, '[无印豆包][千问] 获取到图片');
                 }
             }
         }
@@ -321,11 +385,11 @@
                     console.log('[无印豆包] 解析 event_data 失败:', e);
                     return;
                 }
-                
+
                 if (!eventData.message?.content) {
                     return;
                 }
-                
+
                 let messageContent;
                 try {
                     messageContent = JSON.parse(eventData.message.content);
@@ -339,35 +403,14 @@
 
                 creations = messageContent.creations;
             }
-            
 
-            
+
+
             for (const creation of creations) {
                 if (creation?.video) {
-                    // Handle video
-                    const vid = creation.video.vid;
-                    getDoubaoVideoInfo(vid).then(info => addChatVideo(info));
+                    handleDoubaoCreationVideo(creation);
                 }else{
-                    const imageData = creation.image?.image_ori_raw;
-                    if (imageData) {
-                        let imageUrl = '';
-                        let width = 0;
-                        let height = 0;
-                        
-                        if (typeof imageData === 'string') {
-                            imageUrl = imageData;
-                        } else if (typeof imageData === 'object' && imageData.url) {
-                            imageUrl = imageData.url;
-                            width = imageData.width || 0;
-                            height = imageData.height || 0;
-                        }
-                        
-                        if (imageUrl && !chatImages.find(img => img.url === imageUrl)) {
-                            chatImages.push({ url: imageUrl, width, height });
-                            console.log('[无印豆包] 获取到新图片:', imageUrl, `${width} × ${height}`);
-                            updateButtonCount();
-                        }
-                    }
+                    addChatImage(getCreationImageInfo(creation));
                 }
             }
         } catch (e) {
@@ -440,10 +483,421 @@
         }
     }
 
+    function handleDoubaoCreationVideo(creation) {
+        processDoubaoFallbackVideos(creation, safeJsonStringify(creation));
+    }
+
+    function safeJsonStringify(value) {
+        try {
+            return JSON.stringify(value) || '';
+        } catch {
+            return '';
+        }
+    }
+
+    function processDoubaoFallbackVideos(json, rawBody = '') {
+        const fallbackApis = findDoubaoFallbackApis(json, rawBody);
+        if (!fallbackApis.length) return;
+
+        console.log('[无印豆包] 找到 fallback_api 数量:', fallbackApis.length);
+        removeLegacyDoubaoVideos();
+        for (const fallbackApi of fallbackApis) {
+            if (processedFallbackApis.has(fallbackApi)) continue;
+            processedFallbackApis.add(fallbackApi);
+
+            getDoubaoVideoInfoFromFallbackApi(fallbackApi)
+                .then(info => addChatVideo(info))
+                .catch(error => console.warn('[无印豆包] fallback_api 解析失败:', error));
+        }
+    }
+
+    async function getDoubaoVideoInfoFromFallbackApi(fallbackApi) {
+        const apiUrl = replaceQueryParams(fallbackApi, {
+            channel: 'no',
+            codec_type: '8',
+            logo_type: 'unwatermarked',
+        });
+
+        const payload = await requestJson(apiUrl);
+        const data = getVideoData(payload);
+        const picked = pickMainUrlEntry(data);
+        if (!picked?.token) {
+            console.warn('[无印豆包] fallback_api 未找到 main_url:', apiUrl);
+            return null;
+        }
+
+        const videoUrl = await decodeMainUrl(picked.token, findKeySeedDeep(payload));
+        if (!videoUrl) {
+            console.warn('[无印豆包] fallback_api main_url 解码失败:', apiUrl);
+            return null;
+        }
+
+        const meta = picked.entry || {};
+        console.log('[无印豆包] fallback_api 获取无水印视频成功:', videoUrl);
+        return {
+            vid: data.vid || data.video_id || meta.vid || meta.video_id || apiUrl,
+            source: 'fallback_api',
+            width: Number(meta.vwidth || meta.width || data.vwidth || data.width || 0),
+            height: Number(meta.vheight || meta.height || data.vheight || data.height || 0),
+            definition: meta.definition || data.definition || '',
+            duration: Number(meta.duration || data.duration || 0),
+            codec_type: meta.codec_type || data.codec_type || '',
+            poster_url: data.poster_url || data.poster || '',
+            url: videoUrl,
+        };
+    }
+
+    function removeLegacyDoubaoVideos() {
+        const nextVideos = chatVideos.filter(video => video?.source === 'fallback_api');
+        if (nextVideos.length === chatVideos.length) return;
+
+        chatVideos = nextVideos;
+        updateButtonCount();
+        console.log('[无印豆包] 已移除旧 vid/get_play_info 视频，避免下载水印源');
+    }
+
+    function requestJson(url) {
+        return new Promise((resolve, reject) => {
+            if (typeof GM_xmlhttpRequest === 'function') {
+                GM_xmlhttpRequest({
+                    method: 'GET',
+                    url,
+                    headers: {
+                        accept: 'application/json,text/plain,*/*',
+                    },
+                    onload: (response) => {
+                        if (response.status < 200 || response.status >= 300) {
+                            reject(new Error(`请求失败: ${response.status}`));
+                            return;
+                        }
+                        try {
+                            const body = response.responseText || response.response;
+                            resolve(typeof body === 'string' ? JSON.parse(body) : body);
+                        } catch (error) {
+                            reject(error);
+                        }
+                    },
+                    onerror: () => reject(new Error('请求失败')),
+                    ontimeout: () => reject(new Error('请求超时')),
+                });
+                return;
+            }
+
+            originalFetch.call(pageWindow, url, {
+                method: 'GET',
+                credentials: 'omit',
+                headers: {
+                    accept: 'application/json,text/plain,*/*',
+                },
+            })
+                .then(response => response.json())
+                .then(resolve)
+                .catch(reject);
+        });
+    }
+
+    function findDoubaoFallbackApis(json, rawBody = '') {
+        const apis = new Set();
+
+        for (const value of findValuesByKey(json, 'fallback_api')) {
+            addFallbackApi(apis, value);
+        }
+
+        const body = typeof rawBody === 'string' ? rawBody : '';
+        const patterns = [
+            /fallback_api\\":\\"(.*?)\\"/g,
+            /"fallback_api"\s*:\s*"([^"]+)"/g,
+        ];
+
+        for (const pattern of patterns) {
+            let match = pattern.exec(body);
+            while (match) {
+                addFallbackApi(apis, decodeJsonEscapedFragment(match[1]));
+                match = pattern.exec(body);
+            }
+        }
+
+        return Array.from(apis);
+    }
+
+    function addFallbackApi(apis, value) {
+        if (typeof value !== 'string' || !value) return;
+
+        const url = decodeJsonEscapedFragment(value);
+        if (isHttpUrl(url)) {
+            apis.add(url);
+        }
+    }
+
+    function decodeJsonEscapedFragment(value) {
+        let text = value;
+        for (let index = 0; index < 3; index++) {
+            try {
+                const decoded = JSON.parse(`"${text.replace(/"/g, '\\"')}"`);
+                if (decoded === text) break;
+                text = decoded;
+            } catch {
+                break;
+            }
+        }
+        return text.replace(/\\u0026/g, '&').replace(/\\\//g, '/');
+    }
+
+    function replaceQueryParams(url, params) {
+        const parsedUrl = new URL(url);
+        for (const [key, value] of Object.entries(params)) {
+            parsedUrl.searchParams.set(key, value);
+        }
+        return parsedUrl.toString();
+    }
+
+    function getVideoData(payload) {
+        const videoInfo = payload?.video_info || payload?.data?.video_info || payload;
+        const data = videoInfo?.data || videoInfo;
+        return data && typeof data === 'object' ? data : {};
+    }
+
+    function pickMainUrlEntry(data) {
+        const videoList = data?.video_list;
+        const entries = videoList && typeof videoList === 'object' && Object.keys(videoList).length
+            ? Object.values(videoList)
+            : [data];
+        let best = null;
+
+        for (const entry of entries) {
+            if (!entry || typeof entry !== 'object') continue;
+            const token = entry.main_url || entry.play_url || '';
+            if (typeof token !== 'string' || !token.trim()) continue;
+            const score = Number(entry.bitrate || entry.real_bitrate || 0)
+                + Number(entry.vwidth || entry.width || 0) * Number(entry.vheight || entry.height || 0);
+            if (!best || score > best.score) {
+                best = { token: token.trim(), score, entry };
+            }
+        }
+
+        return best;
+    }
+
+    function findKeySeedDeep(value, depth = 0) {
+        if (depth > 10 || value == null) return '';
+
+        if (typeof value === 'string') {
+            let match = value.match(/(?:^|[?&])key_seed=([^&"'<>\\\s]+)/i);
+            if (match) return decodeURIComponent(match[1]);
+            match = value.match(/["']key_seed["']\s*:\s*["']([^"']+)/i);
+            return match ? decodeURIComponent(match[1]) : '';
+        }
+
+        if (typeof value !== 'object') return '';
+
+        if (typeof value.key_seed === 'string' && value.key_seed.trim()) {
+            return value.key_seed.trim();
+        }
+
+        for (const item of Object.values(value)) {
+            const hit = findKeySeedDeep(item, depth + 1);
+            if (hit) return hit;
+        }
+
+        return '';
+    }
+
+    async function decodeMainUrl(token, keySeed = '') {
+        if (isHttpUrl(token)) return token;
+
+        const plainUrl = tryDecodeBase64Url(token);
+        if (plainUrl) return plainUrl;
+
+        if (token.startsWith('qAAB') && keySeed) {
+            return await decodeQaabToken(token, keySeed);
+        }
+
+        return '';
+    }
+
+    function tryDecodeBase64Url(token) {
+        const bytes = base64DecodeLoose(token);
+        if (!bytes) return '';
+        const text = asciiUrlFromBytes(bytes);
+        return isHttpUrl(text) ? text : '';
+    }
+
+    function base64DecodeLoose(text) {
+        const input = String(text || '').trim();
+        const variants = [
+            input,
+            input.replace(/[$@#]/g, char => ({ '$': '_', '@': '/', '#': '.' }[char])),
+            input.replace(/[$@#]/g, char => ({ '$': '+', '@': '/', '#': '=' }[char])),
+        ];
+        const seen = new Set();
+
+        for (const candidate of variants) {
+            if (!candidate || seen.has(candidate)) continue;
+            seen.add(candidate);
+            try {
+                const normalized = padBase64(candidate).replace(/-/g, '+').replace(/_/g, '/');
+                const binary = atob(normalized);
+                const bytes = new Uint8Array(binary.length);
+                for (let index = 0; index < binary.length; index++) {
+                    bytes[index] = binary.charCodeAt(index);
+                }
+                return bytes;
+            } catch {
+                // Try the next variant.
+            }
+        }
+
+        return null;
+    }
+
+    function padBase64(text) {
+        const pad = (4 - (text.length % 4)) % 4;
+        return text + '='.repeat(pad);
+    }
+
+    function asciiUrlFromBytes(bytes) {
+        if (!bytes || !bytes.length) return '';
+        for (const byte of bytes) {
+            if (byte !== 9 && byte !== 10 && byte !== 13 && (byte < 32 || byte > 126)) {
+                return '';
+            }
+        }
+        return new TextDecoder().decode(bytes);
+    }
+
+    async function decodeQaabToken(token, keySeed) {
+        const data = base64DecodeLoose(token);
+        const seed = base64DecodeLoose(keySeed);
+        if (!data || !seed) return '';
+
+        const digest1 = await crypto.subtle.digest('SHA-512', seed.slice(0, 32));
+        const salt = hexToBytes(QAAB_SALT_HEX);
+        const digest2Input = concatBytes(new Uint8Array(digest1), salt);
+        const digest2 = new Uint8Array(await crypto.subtle.digest('SHA-512', digest2Input));
+        const key = digest2.slice(0, 16);
+        const iv = digest2.slice(16, 32);
+        const attempts = [];
+
+        if (data.length >= 4 && data[0] === 0xa8 && data[1] === 0x00 && data[2] === 0x01 && data[3] === 0x00) {
+            attempts.push({ payload: data.slice(4), key, iv });
+            attempts.push({ payload: data.slice(4), key: iv, iv: key });
+            if (data.length > 36) {
+                attempts.push({ payload: data.slice(36), key, iv: data.slice(20, 36) });
+                attempts.push({ payload: data.slice(36), key, iv });
+            }
+        } else {
+            attempts.push({ payload: data, key, iv });
+        }
+
+        for (const attempt of attempts) {
+            const url = await decryptAesCbcUrl(attempt.payload, attempt.key, attempt.iv);
+            if (url) return url;
+        }
+
+        return '';
+    }
+
+    async function decryptAesCbcUrl(payload, keyBytes, ivBytes) {
+        if (!payload.length || payload.length % 16 !== 0) return '';
+
+        try {
+            const key = await crypto.subtle.importKey('raw', keyBytes, 'AES-CBC', false, ['decrypt']);
+            const plain = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-CBC', iv: ivBytes }, key, payload));
+            const direct = asciiUrlFromBytes(plain);
+            if (isHttpUrl(direct)) return direct;
+            const stripped = stripPkcs7(plain);
+            const url = asciiUrlFromBytes(stripped);
+            return isHttpUrl(url) ? url : '';
+        } catch {
+            return '';
+        }
+    }
+
+    function stripPkcs7(bytes) {
+        if (!bytes || !bytes.length) return new Uint8Array();
+        const pad = bytes[bytes.length - 1];
+        if (pad < 1 || pad > 16 || pad > bytes.length) return bytes;
+        for (let index = bytes.length - pad; index < bytes.length; index++) {
+            if (bytes[index] !== pad) return bytes;
+        }
+        return bytes.slice(0, bytes.length - pad);
+    }
+
+    function hexToBytes(hex) {
+        const bytes = new Uint8Array(hex.length / 2);
+        for (let index = 0; index < bytes.length; index++) {
+            bytes[index] = parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+        }
+        return bytes;
+    }
+
+    function concatBytes(first, second) {
+        const bytes = new Uint8Array(first.length + second.length);
+        bytes.set(first, 0);
+        bytes.set(second, first.length);
+        return bytes;
+    }
+
+    function findValuesByKey(value, targetKey) {
+        const values = [];
+        walkJsonAndStrings(value, (node) => {
+            if (!node || typeof node !== 'object' || Array.isArray(node)) return;
+            if (Object.prototype.hasOwnProperty.call(node, targetKey)) {
+                values.push(node[targetKey]);
+            }
+        });
+        return values;
+    }
+
+    function walkJsonAndStrings(value, visitor, seen = new Set()) {
+        if (value == null) return;
+
+        if (typeof value === 'string') {
+            const parsed = parseJsonString(value);
+            if (parsed !== null) {
+                walkJsonAndStrings(parsed, visitor, seen);
+            }
+            return;
+        }
+
+        if (typeof value !== 'object' || seen.has(value)) return;
+
+        seen.add(value);
+        visitor(value);
+
+        if (Array.isArray(value)) {
+            for (const item of value) {
+                walkJsonAndStrings(item, visitor, seen);
+            }
+            return;
+        }
+
+        for (const key of Object.keys(value)) {
+            walkJsonAndStrings(value[key], visitor, seen);
+        }
+    }
+
+    function parseJsonString(text) {
+        const trimmed = text.trim();
+        if (!trimmed || (!trimmed.startsWith('{') && !trimmed.startsWith('['))) {
+            return null;
+        }
+
+        try {
+            return JSON.parse(trimmed);
+        } catch {
+            return null;
+        }
+    }
+
+    function isHttpUrl(url) {
+        return typeof url === 'string' && /^https?:\/\//i.test(url);
+    }
+
     function parseChatHistoryImages(messages) {
         if (!Array.isArray(messages)) return;
-        
-        const newImages = [];
+
+        let addedCount = 0;
 
         try {
             for (const item of messages) {
@@ -453,32 +907,15 @@
                         if (!creationBlock || !Array.isArray(creationBlock.creations)) continue;
                         for (const creation of creationBlock.creations) {
                             if (creation?.video) {
-                                const vid = creation.video.vid;
-                                getDoubaoVideoInfo(vid).then(info => addChatVideo(info));
+                                handleDoubaoCreationVideo(creation);
                             }else{
-                                const imageData = creation.image?.image_ori_raw;
-                                if (imageData) {
-                                    let imageUrl = '';
-                                    let width = 0;
-                                    let height = 0;
-                                    
-                                    if (typeof imageData === 'string') {
-                                        imageUrl = imageData;
-                                    } else if (typeof imageData === 'object' && imageData.url) {
-                                        imageUrl = imageData.url;
-                                        width = imageData.width || 0;
-                                        height = imageData.height || 0;
-                                    }
-                                    
-                                    if (imageUrl && !newImages.find(img => img.url === imageUrl)) {
-                                        newImages.push({ url: imageUrl, width, height });
-                                        console.log('[无印豆包] 找到图片:', imageUrl, `${width} × ${height}`);
-                                    }
+                                if (addChatImage(getCreationImageInfo(creation), '[无印豆包] 找到图片')) {
+                                    addedCount++;
                                 }
                             }
                         }
                     }
-                    
+
                 } catch (e) {
                     console.log('[无印豆包] 解析消息失败:', e);
                     continue;
@@ -487,79 +924,111 @@
         } catch (e) {
             console.log('[无印豆包] 解析消息失败:', e);
         }
-        
-        if (newImages.length > 0) {
-            chatImages = newImages;
-            console.log('[无印豆包] 更新聊天图片，共', chatImages.length, '张');
-            updateButtonCount();
+
+        if (addedCount > 0) {
+            console.log('[无印豆包] 合并聊天图片，新增', addedCount, '张，共', chatImages.length, '张');
         }
     }
 
     function extractSharePageImages() {
         try {
             const imageList = [];
-            
-            const scriptElement = document.querySelector('script[data-script-src="modern-run-router-data-fn"]');
+
+            const addCreationMedia = (creation) => {
+                if (creation?.video) {
+                    handleDoubaoCreationVideo(creation);
+                    return;
+                }
+
+                const imageData = creation?.image?.image_ori_raw;
+                if (!imageData) return;
+
+                let imageUrl = '';
+                let width = 0;
+                let height = 0;
+
+                if (typeof imageData === 'string') {
+                    imageUrl = imageData.replace(/&amp;/g, '&');
+                } else if (typeof imageData === 'object' && imageData.url) {
+                    imageUrl = imageData.url.replace(/&amp;/g, '&');
+                    width = imageData.width || 0;
+                    height = imageData.height || 0;
+                }
+
+                if (imageUrl && !imageList.find(img => img.url === imageUrl)) {
+                    imageList.push({
+                        url: imageUrl,
+                        width: width,
+                        height: height
+                    });
+                    console.log('[无印豆包] 找到图片:', imageUrl, `${width} × ${height}`);
+                }
+            };
+
+            const parseContentBlock = (block) => {
+                const contentData = block.content_v2 || block.content;
+                if (!contentData) return null;
+                return typeof contentData === 'string' ? JSON.parse(contentData) : contentData;
+            };
+
+            const parseMessageSnapshot = (messageSnapshot) => {
+                if (!Array.isArray(messageSnapshot)) return;
+
+                console.log('[无印豆包] 找到消息列表，共', messageSnapshot.length, '条消息');
+
+                for (const message of messageSnapshot) {
+                    for (const block of message.content_block || []) {
+                        try {
+                            const contentData = parseContentBlock(block);
+                            const creations = contentData?.creation_block?.creations;
+                            if (!Array.isArray(creations)) continue;
+
+                            for (const creation of creations) {
+                                addCreationMedia(creation);
+                            }
+                        } catch (e) {
+                            continue;
+                        }
+                    }
+                }
+            };
+
+            const parseRouterDataItem = (data) => {
+                if (typeof data === 'object' && data?.data?.message_snapshot?.message_list) {
+                    parseMessageSnapshot(data.data.message_snapshot.message_list);
+                    return;
+                }
+
+                if (Array.isArray(data) && data.length) {
+                    const routerDataFnArg = data[0]?.routerDataFnArgs?.[0];
+                    if (!routerDataFnArg) return;
+
+                    const routerData = typeof routerDataFnArg === 'string'
+                        ? JSON.parse(routerDataFnArg)
+                        : routerDataFnArg;
+                    parseMessageSnapshot(routerData?.data?.message_snapshot?.message_list);
+                }
+            };
+
+            const scriptElement = document.querySelector(
+                'script[data-script-src="modern-run-router-data-fn"], script[data-script-src="modern-run-window-fn"][data-fn-name="mergeLoaderData"]'
+            );
             if (scriptElement) {
                 const dataFnArgs = scriptElement.getAttribute('data-fn-args');
                 if (dataFnArgs) {
                     const jsonStr = dataFnArgs.replace(/&quot;/g, '"');
                     const jsonData = JSON.parse(jsonStr);
-                    
+                    processDoubaoFallbackVideos(jsonData, jsonStr);
+
                     for (const data of jsonData) {
-                        if (typeof data === 'object' && data?.data?.message_snapshot?.message_list) {
-                            const messageSnapshot = data.data.message_snapshot.message_list;
-                            console.log('[无印豆包] 找到消息列表，共', messageSnapshot.length, '条消息');
-                            
-                            for (const message of messageSnapshot) {
-                                for (const block of message.content_block || []) {
-                                    try {
-                                        const contentData = JSON.parse(block.content_v2);
-                                        if (contentData.creation_block?.creations) {
-                                            for (const creation of contentData.creation_block.creations) {
-                                                if (creation?.video) {
-                                                    const vid = creation.video.vid;
-                                                    getDoubaoVideoInfo(vid).then(info => addChatVideo(info));
-                                                }else{
-                                                    const imageData = creation.image?.image_ori_raw;
-                                                    if (imageData) {
-                                                        let imageUrl = '';
-                                                        let width = 0;
-                                                        let height = 0;
-                                                        
-                                                        if (typeof imageData === 'string') {
-                                                            imageUrl = imageData;
-                                                        } else if (typeof imageData === 'object' && imageData.url) {
-                                                            imageUrl = imageData.url.replace(/&amp;/g, '&');
-                                                            width = imageData.width || 0;
-                                                            height = imageData.height || 0;
-                                                        }
-                                                        
-                                                        if (imageUrl && !imageList.find(img => img.url === imageUrl)) {
-                                                            imageList.push({
-                                                                url: imageUrl,
-                                                                width: width,
-                                                                height: height
-                                                            });
-                                                            console.log('[无印豆包] 找到图片:', imageUrl, `${width} × ${height}`);
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    } catch (e) {
-                                        continue;
-                                    }
-                                }
-                            }
-                        }
+                        parseRouterDataItem(data);
                     }
-                    
+
                     console.log('[无印豆包] 提取完成，共找到', imageList.length, '张图片');
                     return imageList;
                 }
             }
-            
+
             console.error('[无印豆包] 未找到任何可用的数据源');
             return [];
         } catch (error) {
@@ -569,7 +1038,7 @@
     }
 
     function extractImages() {
-        
+
         if (pageWindow.location.hostname.includes('doubao.com') && pageWindow.location.pathname.includes('/chat/')) {
             console.log('[无印豆包] 豆包聊天界面，返回已缓存的', chatImages.length, '张图片');
             return chatImages;
@@ -693,6 +1162,94 @@
         return `${prefix}_${index + 1}${getMediaExtension(url, type)}`;
     }
 
+    function fetchImageBlobWithGM(url) {
+        return new Promise((resolve, reject) => {
+            if (typeof GM_xmlhttpRequest !== 'function') {
+                reject(new Error('GM_xmlhttpRequest 不可用'));
+                return;
+            }
+
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url,
+                responseType: 'blob',
+                onload: (response) => {
+                    if (response.status >= 200 && response.status < 300 && response.response) {
+                        resolve(response.response);
+                        return;
+                    }
+                    reject(new Error(`图片请求失败: ${response.status}`));
+                },
+                onerror: () => reject(new Error('图片请求失败')),
+                ontimeout: () => reject(new Error('图片请求超时')),
+            });
+        });
+    }
+
+    async function fetchImageBlob(url) {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`图片请求失败: ${response.status}`);
+            }
+            return await response.blob();
+        } catch (error) {
+            console.warn('[无印豆包] fetch 读取图片失败，尝试 GM_xmlhttpRequest:', error);
+            return fetchImageBlobWithGM(url);
+        }
+    }
+
+    function convertBlobToPng(blob) {
+        if (blob.type === 'image/png') {
+            return Promise.resolve(blob);
+        }
+
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            const objectUrl = URL.createObjectURL(blob);
+
+            img.onload = () => {
+                try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.naturalWidth || img.width;
+                    canvas.height = img.naturalHeight || img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    canvas.toBlob((pngBlob) => {
+                        URL.revokeObjectURL(objectUrl);
+                        if (pngBlob) {
+                            resolve(pngBlob);
+                        } else {
+                            reject(new Error('图片转换失败'));
+                        }
+                    }, 'image/png');
+                } catch (error) {
+                    URL.revokeObjectURL(objectUrl);
+                    reject(error);
+                }
+            };
+
+            img.onerror = () => {
+                URL.revokeObjectURL(objectUrl);
+                reject(new Error('图片加载失败'));
+            };
+
+            img.src = objectUrl;
+        });
+    }
+
+    async function copyImageToClipboard(url) {
+        if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+            throw new Error('当前浏览器不支持复制图片到剪贴板');
+        }
+
+        const imageBlob = await fetchImageBlob(url);
+        const pngBlob = await convertBlobToPng(imageBlob);
+        await navigator.clipboard.write([
+            new ClipboardItem({ 'image/png': pngBlob })
+        ]);
+    }
+
     function isOwnElement(el) {
         if (!el) return false;
         return Boolean(el.closest && (
@@ -798,7 +1355,7 @@
                 * {
                     box-sizing: border-box;
                 }
-                
+
                 #${NOMARK_BUTTON_HOST_ID} {
                     position: relative;
                     z-index: 2147483646;
@@ -840,7 +1397,7 @@
                     overflow: visible;
                     color: var(--dbx-text-primary, currentColor);
                 }
-                
+
                 #doubao-nomark-btn .count {
                     position: absolute;
                     top: -7px;
@@ -865,7 +1422,7 @@
                 #doubao-nomark-btn .count.show {
                     display: flex;
                 }
-                
+
                 #doubao-nomark-modal {
                     position: fixed;
                     top: 0;
@@ -879,16 +1436,43 @@
                     justify-content: center;
                     animation: fadeIn 0.2s ease;
                 }
-                
+
                 @keyframes fadeIn {
                     from { opacity: 0; }
                     to { opacity: 1; }
                 }
-                
+
                 #doubao-nomark-modal.show {
                     display: flex;
                 }
-                
+
+                #doubao-nomark-image-preview {
+                    position: fixed;
+                    inset: 0;
+                    z-index: 10001;
+                    display: none;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 16px;
+                    background: rgba(0, 0, 0, 0.86);
+                    cursor: zoom-out;
+                }
+
+                #doubao-nomark-image-preview.show {
+                    display: flex;
+                }
+
+                #doubao-nomark-image-preview img {
+                    width: auto;
+                    height: auto;
+                    max-width: calc(100vw - 32px);
+                    max-height: calc(100vh - 32px);
+                    object-fit: contain;
+                    display: block;
+                    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.36);
+                    pointer-events: none;
+                }
+
                 .modal-content {
                     background: #ffffff;
                     border-radius: 12px;
@@ -903,18 +1487,18 @@
                     font-size: 12px;
                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                 }
-                
+
                 @keyframes slideUp {
-                    from { 
-                        transform: translateY(20px); 
-                        opacity: 0; 
+                    from {
+                        transform: translateY(20px);
+                        opacity: 0;
                     }
-                    to { 
-                        transform: translateY(0); 
-                        opacity: 1; 
+                    to {
+                        transform: translateY(0);
+                        opacity: 1;
                     }
                 }
-                
+
                 .modal-topbar {
                     padding: 10px 20px 0;
                     border-bottom: 1px solid #e0e0e0;
@@ -971,13 +1555,13 @@
                     transition: all 0.2s ease;
                     line-height: 1;
                 }
-                
+
                 .close-btn:hover {
                     background: #f7f7f7;
                     border-color: #1f1f1f;
                     color: #1f1f1f;
                 }
-                
+
                 .modal-body {
                     padding: 16px 20px;
                     overflow-y: auto;
@@ -1015,24 +1599,24 @@
                     border-color: #d0d0d0;
                     box-shadow: 0 -1px 0 #ffffff inset;
                 }
-                
+
                 .modal-body::-webkit-scrollbar {
                     width: 6px;
                 }
-                
+
                 .modal-body::-webkit-scrollbar-track {
                     background: transparent;
                 }
-                
+
                 .modal-body::-webkit-scrollbar-thumb {
                     background: #d0d0d0;
                     border-radius: 3px;
                 }
-                
+
                 .modal-body::-webkit-scrollbar-thumb:hover {
                     background: #a0a0a0;
                 }
-                
+
                 .media-grid {
                     --media-card-width: 160px;
                     --media-preview-height: 160px;
@@ -1155,14 +1739,14 @@
                     background: #ffffff;
                     border-top: 1px solid #e0e0e0;
                 }
-                
+
                 .media-preview img {
                     width: 100%;
                     height: var(--media-preview-height);
                     object-fit: cover;
                     display: block;
                 }
-                
+
                 .image-info {
                     position: absolute;
                     top: 8px;
@@ -1176,11 +1760,11 @@
                     opacity: 0;
                     transition: opacity 0.2s ease;
                 }
-                
+
                 .media-card:hover .image-info {
                     opacity: 1;
                 }
-                
+
                 .action-btn {
                     flex: 0 0 auto;
                     min-width: 52px;
@@ -1202,42 +1786,42 @@
                     accent-color: #1f1f1f;
                     cursor: pointer;
                 }
-                
+
                 .action-btn:hover {
                     background: #f7f7f7;
                     border-color: #1f1f1f;
                 }
-                
+
                 .action-btn.success {
                     background: #f0fdf4;
                     border-color: #86efac;
                     color: #166534;
                 }
-                
+
                 .empty-state {
                     text-align: center;
                     padding: 56px 20px;
                     color: #a0a0a0;
                 }
-                
+
                 .empty-state-icon {
                     font-size: 48px;
                     margin-bottom: 12px;
                     opacity: 0.5;
                 }
-                
+
                 .empty-state-text {
                     font-size: 12px;
                     color: #6b6b6b;
                     font-weight: 500;
                 }
-                
+
                 .empty-state-desc {
                     font-size: 12px;
                     color: #a0a0a0;
                     margin-top: 4px;
                 }
-                
+
                 .modal-footer {
                     padding: 8px 20px;
                     border-top: 1px solid #e0e0e0;
@@ -1247,18 +1831,18 @@
                     gap: 8px;
                     background: #fafafa;
                 }
-                
+
                 .footer-divider {
                     width: 1px;
                     height: 12px;
                     background: #e0e0e0;
                 }
-                
+
                 .footer-text {
                     color: #a0a0a0;
                     font-size: 12px;
                 }
-                
+
                 .footer-link {
                     display: inline-flex;
                     align-items: center;
@@ -1268,18 +1852,18 @@
                     font-size: 12px;
                     transition: all 0.15s ease;
                 }
-                
+
                 .footer-link:hover {
                     color: #1f1f1f;
                 }
-                
+
                 .footer-link svg {
                     width: 16px;
                     height: 16px;
                     opacity: 0.7;
                     transition: opacity 0.15s ease;
                 }
-                
+
                 .footer-link:hover svg {
                     opacity: 1;
                 }
@@ -1357,6 +1941,34 @@
         let batchDownloading = false;
         let batchCancelRequested = false;
         let currentDownloadTask = null;
+        let imagePreviewOverlay = null;
+
+        function closeImagePreview() {
+            if (imagePreviewOverlay) {
+                imagePreviewOverlay.classList.remove('show');
+            }
+        }
+
+        function getImagePreviewOverlay() {
+            if (imagePreviewOverlay) return imagePreviewOverlay;
+
+            imagePreviewOverlay = document.createElement('div');
+            imagePreviewOverlay.id = 'doubao-nomark-image-preview';
+            imagePreviewOverlay.innerHTML = '<img alt="图片预览">';
+            imagePreviewOverlay.addEventListener('click', closeImagePreview);
+            document.body.appendChild(imagePreviewOverlay);
+            return imagePreviewOverlay;
+        }
+
+        function showImagePreview(image) {
+            if (!image?.url) return;
+
+            const overlay = getImagePreviewOverlay();
+            const img = overlay.querySelector('img');
+            img.src = image.url;
+            img.alt = '图片预览';
+            overlay.classList.add('show');
+        }
 
         function formatDuration(sec) {
             if (!sec || sec <= 0) return '';
@@ -1495,7 +2107,7 @@
                     const resolution = (image.width && image.height) ? `${image.width} × ${image.height}` : '';
                     return `
                         <div class="media-card">
-                            <div class="media-preview">
+                            <div class="media-preview" data-type="image" data-index="${item.index}">
                                 <img src="${image.url}" alt="图片 ${item.index + 1}" loading="lazy">
                                 ${resolution ? `<div class="image-info">${resolution}</div>` : ''}
                             </div>
@@ -1504,7 +2116,7 @@
                             </div>
                             <div class="video-actions">
                                 <button class="action-btn btn-media-download" data-type="image" data-index="${item.index}">下载</button>
-                                <button class="action-btn btn-media-copy" data-type="image" data-index="${item.index}">地址</button>
+                                <button class="action-btn btn-media-copy" data-type="image" data-index="${item.index}">复制</button>
                                 <input class="media-select" type="checkbox" data-type="image" data-index="${item.index}" aria-label="选择图片 ${item.index + 1}">
                             </div>
                         </div>
@@ -1572,16 +2184,24 @@
                     const media = getMediaItem(type, index);
                     if (!media) return;
 
+                    const defaultText = type === 'image' ? '复制' : '地址';
+                    btn.textContent = '复制中';
                     try {
-                        await navigator.clipboard.writeText(media.url);
+                        if (type === 'image') {
+                            await copyImageToClipboard(media.url);
+                        } else {
+                            await navigator.clipboard.writeText(media.url);
+                        }
                         btn.classList.add('success');
                         btn.textContent = '✓ 已复制';
                         setTimeout(() => {
                             btn.classList.remove('success');
-                            btn.textContent = '地址';
+                            btn.textContent = defaultText;
                         }, 2000);
                     } catch (err) {
                         console.error('复制失败:', err);
+                        btn.textContent = defaultText;
+                        alert(type === 'image' ? '复制图片失败，请重试' : '复制地址失败，请重试');
                     }
                 });
             });
@@ -1590,12 +2210,18 @@
                 const checkbox = card.querySelector('.media-select');
                 if (!checkbox) return;
 
-                card.querySelector('.media-preview img')?.addEventListener('click', () => {
-                    checkbox.checked = !checkbox.checked;
-                });
-
                 card.querySelector('.video-click-top')?.addEventListener('click', () => {
                     checkbox.checked = !checkbox.checked;
+                });
+            });
+
+            mediaContainer.querySelectorAll('.media-preview img').forEach(img => {
+                img.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const preview = img.closest('.media-preview');
+                    const index = parseInt(preview?.dataset.index || '', 10);
+                    const image = getMediaItem('image', index);
+                    showImagePreview(image);
                 });
             });
 
@@ -1675,11 +2301,13 @@
 
         closeBtn.addEventListener('click', () => {
             modal.classList.remove('show');
+            closeImagePreview();
         });
 
         modal.addEventListener('click', (e) => {
             if (e.target === modal) {
                 modal.classList.remove('show');
+                closeImagePreview();
             }
         });
 
@@ -1691,15 +2319,17 @@
 
     function initScript() {
         console.log('[无印豆包] 脚本已加载');
-        
+
         if (pageWindow.location.pathname.includes('/chat/')) {
             createFloatingButton();
             return;
         }
-        
-        const hasScriptData = !!document.querySelector('script[data-script-src="modern-run-router-data-fn"]');
+
+        const hasScriptData = !!document.querySelector(
+            'script[data-script-src="modern-run-router-data-fn"], script[data-script-src="modern-run-window-fn"][data-fn-name="mergeLoaderData"]'
+        );
         const hasRouterData = !!window._ROUTER_DATA;
-        
+
         if (!hasScriptData && !hasRouterData) {
             initRetryCount++;
             if (initRetryCount < MAX_RETRY) {
@@ -1714,7 +2344,7 @@
         if (pageWindow.location.hostname.includes('doubao.com') && pageWindow.location.pathname.includes('/thread/')) {
             chatImages = extractSharePageImages();
         }
-        
+
         createFloatingButton();
     }
 
