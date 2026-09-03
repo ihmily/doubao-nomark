@@ -1,110 +1,189 @@
+import html
+import json
 import re
 import urllib.parse
-from typing import Optional
-from urllib.parse import parse_qs, urlparse
+from typing import Any
 
 import httpx
 
+from doubao_parser.video_crypto import decode_main_url
 
-def get_query_params(url: str, param_name: Optional[str] = None) -> dict | list[str]:
-    parsed_url = urlparse(url)
-    query_params = parse_qs(parsed_url.query)
+DOUBAO_HEADERS = {
+    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "accept-language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7,en-GB;q=0.6",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0",
+}
 
-    if param_name is None:
-        return query_params
+FALLBACK_API_PARAMS = {"codec_type": "8", "logo_type": "unwatermarked"}
+FALLBACK_API_HOST_SUFFIXES = (".snssdk.com", ".douyinvod.com")
+
+
+def _build_unwatermarked_url(url: str) -> str:
+    parsed = urllib.parse.urlsplit(url)
+    hostname = (parsed.hostname or "").lower()
+    trusted_host = any(
+        hostname == suffix.removeprefix(".") or hostname.endswith(suffix) for suffix in FALLBACK_API_HOST_SUFFIXES
+    )
+    if parsed.scheme != "https" or not trusted_host or not parsed.path.startswith("/video/fplay/"):
+        raise ValueError("页面中的 fallback_api 不是受信任的豆包视频接口")
+
+    query = [
+        (key, value)
+        for key, value in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+        if key not in FALLBACK_API_PARAMS
+    ]
+    query.extend(FALLBACK_API_PARAMS.items())
+    return urllib.parse.urlunsplit(
+        (parsed.scheme, parsed.netloc, parsed.path, urllib.parse.urlencode(query), parsed.fragment)
+    )
+
+
+def _extract_fallback_apis(page_html: str) -> list[str]:
+    apis: dict[str, None] = {}
+    parsed_script = False
+
+    def add_api(candidate: str) -> None:
+        candidate = html.unescape(candidate).replace(r"\u0026", "&").replace(r"\/", "/")
+        try:
+            _build_unwatermarked_url(candidate)
+        except ValueError:
+            return
+        apis[candidate] = None
+
+    def walk(value: Any, depth: int = 0) -> None:
+        if depth > 30 or value is None:
+            return
+        if isinstance(value, dict):
+            fallback_api = value.get("fallback_api")
+            if isinstance(fallback_api, str):
+                add_api(fallback_api)
+            for child in value.values():
+                walk(child, depth + 1)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child, depth + 1)
+        elif isinstance(value, str) and value.lstrip().startswith(("{", "[")):
+            try:
+                walk(json.loads(value), depth + 1)
+            except json.JSONDecodeError:
+                pass
+
+    source_pattern = re.compile(r'data-script-src="(?:modern-run-router-data-fn|modern-run-window-fn)"')
+    for script_match in re.finditer(r"<script\b[^>]*>", page_html, re.DOTALL):
+        script_tag = script_match.group(0)
+        if not source_pattern.search(script_tag):
+            continue
+        args_match = re.search(r'data-fn-args="(.*?)"', script_tag, re.DOTALL)
+        if not args_match:
+            continue
+        try:
+            walk(json.loads(html.unescape(args_match.group(1))))
+            parsed_script = True
+        except json.JSONDecodeError:
+            continue
+
+    if not parsed_script:
+        raise KeyError("无法解析页面数据，请确认链接是否有效")
+    return list(apis)
+
+
+def _parse_doubao_video_response(payload: dict, fallback_api: str) -> dict:
+    video_info = payload.get("video_info") or (payload.get("data") or {}).get("video_info") or payload
+    data = video_info.get("data") or video_info if isinstance(video_info, dict) else {}
+    if not isinstance(data, dict):
+        raise KeyError("fallback_api 响应缺少视频数据")
+
+    video_list = data.get("video_list")
+    if isinstance(video_list, dict):
+        candidates = video_list.values()
+    elif isinstance(video_list, list):
+        candidates = video_list
     else:
-        values = query_params.get(param_name, [])
-        return values
+        candidates = (data,)
 
+    def number(value: Any) -> float:
+        try:
+            return float(value or 0)
+        except (TypeError, ValueError):
+            return 0
 
-async def get_doubao_vid(url: str) -> list:
-    headers = {
-        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,"
-        "application/signed-exchange;v=b3;q=0.7",
-        "accept-language": "zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7,en-GB;q=0.6",
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0",
+    entries = [
+        entry
+        for entry in candidates
+        if isinstance(entry, dict) and isinstance(entry.get("main_url") or entry.get("play_url"), str)
+    ]
+    if not entries:
+        raise KeyError("fallback_api 响应中没有 main_url")
+
+    entry = max(
+        entries,
+        key=lambda item: (
+            number(item.get("vwidth") or item.get("width")) * number(item.get("vheight") or item.get("height")),
+            number(item.get("bitrate") or item.get("real_bitrate")),
+        ),
+    )
+    token = str(entry.get("main_url") or entry.get("play_url")).strip()
+    key_seed = data.get("key_seed") or video_info.get("key_seed") or payload.get("key_seed") or ""
+    video_url = decode_main_url(token, str(key_seed))
+    if not video_url:
+        raise ValueError("fallback_api 的 main_url 解密失败")
+
+    width = number(entry.get("vwidth") or entry.get("width") or data.get("vwidth") or data.get("width"))
+    height = number(entry.get("vheight") or entry.get("height") or data.get("vheight") or data.get("height"))
+    return {
+        "vid": data.get("vid") or data.get("video_id") or entry.get("vid") or entry.get("video_id") or fallback_api,
+        "width": int(width),
+        "height": int(height),
+        "definition": entry.get("definition") or data.get("definition") or "",
+        "duration": number(entry.get("duration") or data.get("duration") or data.get("video_duration")),
+        "codec_type": entry.get("codec_type") or data.get("codec_type") or "",
+        "poster_url": data.get("poster_url") or data.get("poster") or "",
+        "url": video_url,
     }
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url, headers=headers)
-        html_str = response.text
-        vids = re.findall("{\\\\&quot;vid\\\\&quot;:\\\\&quot;(.*?)\\\\&quot", html_str)
-        return list(set(vids))
 
 
-async def doubao_video_parse(url: str, return_raw: bool = False) -> list:
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/126.0.0.0 Safari/537.36 NetType/WIFI MicroMessenger/7.0.20.1781(0x6700143B) "
-        "WindowsWechat(0x63090c33) XWEB/14315 Flue",
-        "origin": "https://www.doubao.com",
-    }
-
-    params = {
-        "version_code": "20800",
-        "language": "zh-CN",
-        "device_platform": "web",
-        "aid": "497858",
-        "real_aid": "497858",
-        "pkg_type": "release_version",
-        "device_id": "",
-        "pc_version": "2.51.7",
-        "region": "",
-        "sys_region": "",
-        "samantha_web": "1",
-        "use-olympus-account": "1",
-        "web_tab_id": "",
-    }
+async def doubao_video_parse(url: str, return_raw: bool = False) -> list | dict:
+    if "/thread/" not in url:
+        raise ValueError("新无水印解析仅支持包含视频的豆包对话分享链接（/thread/）")
 
     try:
-        if "/thread/" in url:
-            vid_list = await get_doubao_vid(url)
-        elif "video_id=" in url:
-            vid_list = get_query_params(url, "video_id")
-        else:
-            raise ValueError("链接中缺少 video_id 参数，请检查链接是否正确")
+        async with httpx.AsyncClient(follow_redirects=True, timeout=20) as client:
+            page_response = await client.get(url, headers=DOUBAO_HEADERS)
+            page_response.raise_for_status()
+            fallback_apis = _extract_fallback_apis(page_response.text)
+            if not fallback_apis:
+                raise KeyError("页面中未找到视频 fallback_api，请确认分享链接包含可用视频")
 
-    except (IndexError, TypeError) as e:
-        print(f"Exception: {e}")
-        raise ValueError("链接格式不正确，请确保使用豆包视频分享链接")
+            video_list = []
+            errors = []
+            seen_videos: set[str] = set()
+            for fallback_api in fallback_apis:
+                try:
+                    response = await client.get(_build_unwatermarked_url(fallback_api), headers=DOUBAO_HEADERS)
+                    response.raise_for_status()
+                    payload = response.json()
+                    if return_raw:
+                        return payload
 
-    video_list = []
-    for vid in vid_list:
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    "https://www.doubao.com/samantha/media/get_play_info",
-                    params=params,
-                    headers=headers,
-                    json={"key": vid},
-                )
+                    result = _parse_doubao_video_response(payload, fallback_api)
+                    identity = str(result["vid"] or result["url"])
+                    if identity not in seen_videos:
+                        seen_videos.add(identity)
+                        video_list.append(result)
+                except (httpx.HTTPError, json.JSONDecodeError, KeyError, ValueError) as exc:
+                    errors.append(str(exc))
 
-                result = response.json()
-
-                if "data" not in result:
-                    raise KeyError("API返回数据格式异常，可能链接已失效")
-
-                if return_raw:
-                    return result
-
-                meta = result["data"]["original_media_info"]["meta"]
-
-                video_list.append(
-                    {
-                        "width": meta["width"],
-                        "height": meta["height"],
-                        "definition": meta["definition"],
-                        "duration": meta["duration"],
-                        "codec_type": meta["codec_type"],
-                        "poster_url": result["data"]["poster_url"],
-                        "url": result["data"]["original_media_info"]["main_url"],
-                    }
-                )
-        except httpx.RequestError as e:
-            raise ValueError(f"网络请求失败，请检查网络连接: {str(e)}")
-        except KeyError as e:
-            raise KeyError(f"视频解析失败: {str(e)}")
-    return video_list
+            if not video_list:
+                detail = errors[0] if errors else "未知错误"
+                raise KeyError(f"视频解析失败: {detail}")
+            return video_list
+    except httpx.RequestError as e:
+        raise ValueError(f"网络请求失败，请检查网络连接: {str(e)}") from e
+    except httpx.HTTPStatusError as e:
+        raise ValueError(f"视频服务请求失败（HTTP {e.response.status_code}）") from e
+    except json.JSONDecodeError as e:
+        raise ValueError("视频服务返回的数据格式错误") from e
 
 
 async def get_redirect_url(url: str) -> str:
@@ -179,6 +258,5 @@ async def yunque_video_parse(url: str, return_raw: bool = False) -> list:
 if __name__ == "__main__":
     import asyncio
 
-    # _url = "https://www.doubao.com/video-sharing?share_id=35083351704233730&video_id=v0269cg10004d5e6oefog65smlkr0jl0"
     _url = "https://www.doubao.com/thread/w3de509c584a4e3da"
     print(asyncio.run(doubao_video_parse(_url)))

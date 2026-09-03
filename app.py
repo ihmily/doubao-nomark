@@ -51,9 +51,7 @@ class DouBaoResponse(BaseModel):
 
 class VideoRequest(BaseModel):
     model_config = ConfigDict(
-        json_schema_extra={
-            "example": {"url": "https://www.doubao.com/video-sharing?share_id=xxx&video_id=xxx", "return_raw": False}
-        }
+        json_schema_extra={"example": {"url": "https://www.doubao.com/thread/xxxxxx", "return_raw": False}}
     )
 
     url: HttpUrl

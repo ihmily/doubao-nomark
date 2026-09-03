@@ -14,6 +14,7 @@
 
 ## 更新日志
 
+- **v1.0.7**：修复视频提取、优化插件UI
 - **v1.0.5**：修复豆包无水印视频提取、浏览器插件新增支持视频无水印提取
 - **v1.0.4**：API和插件新增支持千问（Qianwen.com）聊天页图片提取功能
 
@@ -220,12 +221,15 @@ video_data = await doubao_video_parse(url="https://www.doubao.com/thread/xxxxxx"
 
 - 在豆包聊天界面会在页面右下角显示📷按钮或者顶部栏显示📥︎按钮，点击按钮可以打开素材下载面板
 - 在豆包对话页面会自动识别并提取无水印的图片和视频资源
+- 如果安装后没有出现📷按钮，请退出或者刷新浏览器界面，重新打开豆包聊天界面。
 
 ### 插件演示
 
 ![script-example](docs/images/script-example.jpg)
 
 ![script-example2](docs/images/script-example2.png)
+
+![script-example2](docs/images/script-example3.jpg)
 
 ## Star History
 
