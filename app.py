@@ -11,9 +11,9 @@ from pydantic import BaseModel, ConfigDict, HttpUrl
 from doubao_parser.image import doubao_image_parse, qianwen_image_parse
 from doubao_parser.video import doubao_video_parse, yunque_video_parse
 
-app = FastAPI(title="无印豆包 API", description="从豆包|千问对话链接中提取图片和视频资源", version="1.0.4")
+app = FastAPI(title="无印豆包 API", description="从豆包|千问对话链接中提取图片和视频资源", version="1.0.7")
 
-ALLOWED_DOUBAO_HOSTS = {"doubao.com", "www.doubao.com"}
+ALLOWED_DOUBAO_HOSTS = {"doubao.com", "www.doubao.com", "dola.com", "www.dola.com"}
 ALLOWED_QIANWEN_HOSTS = {"qianwen.com", "www.qianwen.com"}
 
 

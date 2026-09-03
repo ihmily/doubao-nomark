@@ -16,7 +16,7 @@ DOUBAO_HEADERS = {
 }
 
 FALLBACK_API_PARAMS = {"codec_type": "8", "logo_type": "unwatermarked"}
-FALLBACK_API_HOST_SUFFIXES = (".snssdk.com", ".douyinvod.com")
+FALLBACK_API_HOST_SUFFIXES = (".snssdk.com", ".douyinvod.com", ".dola.com", ".byteintlapi.com")
 
 
 def _build_unwatermarked_url(url: str) -> str:
@@ -143,7 +143,7 @@ def _parse_doubao_video_response(payload: dict, fallback_api: str) -> dict:
     }
 
 
-async def doubao_video_parse(url: str, return_raw: bool = False) -> list | dict:
+async def doubao_video_parse(url: str, return_raw: bool = False) -> list[dict]:
     if "/thread/" not in url:
         raise ValueError("新无水印解析仅支持包含视频的豆包对话分享链接（/thread/）")
 
@@ -195,9 +195,10 @@ async def get_redirect_url(url: str) -> str:
     async with httpx.AsyncClient() as client:
         response = await client.get(url, headers=headers, follow_redirects=True)
         return str(response.url)
+    return None
 
 
-async def yunque_video_parse(url: str, return_raw: bool = False) -> list:
+async def yunque_video_parse(url: str, return_raw: bool = False) -> list[dict]:
 
     headers = {
         "content-type": "application/json",
@@ -259,4 +260,5 @@ if __name__ == "__main__":
     import asyncio
 
     _url = "https://www.doubao.com/thread/w3de509c584a4e3da"
+    # _url = "https://www.dola.com/thread/xWX8HqqSPfJoKRcbg"
     print(asyncio.run(doubao_video_parse(_url)))

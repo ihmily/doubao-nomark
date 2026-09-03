@@ -5,7 +5,7 @@ import httpx
 
 
 async def doubao_image_parse(url: str, return_raw: bool = False):
-    if "doubao.com/thread/" not in url:
+    if "doubao.com/thread/" not in url and "dola.com/thread/" not in url:
         raise ValueError("链接格式不正确，请使用豆包对话链接（包含 /thread/）")
 
     headers = {
@@ -142,5 +142,6 @@ if __name__ == "__main__":
     import asyncio
 
     print(asyncio.run(doubao_image_parse("https://www.doubao.com/thread/aef4c7a4c78c2")))
+    # print(asyncio.run(doubao_image_parse("https://www.dola.com/thread/xGgiLJgxJFb6UpWwf")))
     # print(asyncio.run(doubao_image_parse("https://www.doubao.com/thread/xba6cbc09655f8f7fbeceb0ee9f8f3f44")))
     # print(asyncio.run(qianwen_image_parse("https://www.qianwen.com/share/chat/1b7641042a7c4f2fae8111f732c31f7f")))

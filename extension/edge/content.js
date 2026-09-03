@@ -8,7 +8,18 @@
         DOUBAO_COMPLETION: '/chat/completion',
         DOUBAO_CHAIN: '/im/chain/single'
     });
+    const DOUBAO_HOSTS = Object.freeze(new Set(['www.doubao.com', 'www.dola.com']));
     const PLATFORM_CODE = window.location.hostname.includes('qianwen.com') ? 'Q' : 'D';
+
+    function isDoubaoHost() {
+        return DOUBAO_HOSTS.has(window.location.hostname);
+    }
+
+    function getDoubaoOrigin() {
+        return window.location.hostname === 'www.dola.com'
+            ? window.location.origin
+            : 'https://www.doubao.com';
+    }
 
     function getRequestUrl(input) {
         if (typeof input === 'string') return input;
@@ -428,15 +439,16 @@
     async function getDoubaoVideoInfo(vid) {
         if (!vid) return null;
 
+        const doubaoOrigin = getDoubaoOrigin();
         const postAispace = async (path, body) => {
-            const response = await fetch(`https://www.doubao.com/samantha/aispace/${path}`, {
+            const response = await fetch(`${doubaoOrigin}/samantha/aispace/${path}`, {
                 method: 'POST',
                 credentials: 'include',
                 headers: {
                     Accept: 'application/json, text/plain, */*',
                     'Content-Type': 'application/json',
-                    Origin: 'https://www.doubao.com',
-                    Referer: 'https://www.doubao.com/',
+                    Origin: doubaoOrigin,
+                    Referer: `${doubaoOrigin}/`,
                 },
                 body: JSON.stringify(body),
             });
@@ -586,7 +598,7 @@
 
     function extractImages() {
         resetMediaForScopeChange();
-        if (window.location.hostname.includes('doubao.com') && window.location.pathname.includes('/chat/')) {
+        if (isDoubaoHost() && window.location.pathname.includes('/chat/')) {
             console.log('[无印豆包] 豆包聊天界面，返回已缓存的', chatImages.length, '张图片');
             return chatImages;
         } else if (window.location.hostname.includes('qianwen.com') && window.location.pathname.includes('/chat/')) {
@@ -784,7 +796,7 @@
             }
         }
 
-        if (window.location.hostname.includes('doubao.com') && window.location.pathname.includes('/thread/')) {
+        if (isDoubaoHost() && window.location.pathname.includes('/thread/')) {
             chatImages = extractSharePageImages();
         }
         

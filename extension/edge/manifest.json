@@ -14,6 +14,7 @@
   ],
   "host_permissions": [
     "https://www.doubao.com/*",
+    "https://www.dola.com/*",
     "https://www.qianwen.com/*"
   ],
   "content_scripts": [
@@ -21,6 +22,8 @@
       "matches": [
         "https://www.doubao.com/thread/*",
         "https://www.doubao.com/chat/*",
+        "https://www.dola.com/thread/*",
+        "https://www.dola.com/chat/*",
         "https://www.qianwen.com/chat/*",
         "https://www.qianwen.com/share/chat/*"
       ],
@@ -31,6 +34,8 @@
       "matches": [
         "https://www.doubao.com/thread/*",
         "https://www.doubao.com/chat/*",
+        "https://www.dola.com/thread/*",
+        "https://www.dola.com/chat/*",
         "https://www.qianwen.com/chat/*",
         "https://www.qianwen.com/share/chat/*"
       ],
@@ -44,6 +49,7 @@
       "resources": ["panel.html", "panel.js", "themes.js", "assets/panel-bg.png"],
       "matches": [
         "https://www.doubao.com/*",
+        "https://www.dola.com/*",
         "https://www.qianwen.com/*"
       ]
     }
