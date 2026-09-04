@@ -16,9 +16,13 @@
     ]);
     const FALLBACK_REQUEST_EVENT = 'doubao-nomark-fallback-request';
     const FALLBACK_RESPONSE_EVENT = 'doubao-nomark-fallback-response';
+    const DOWNLOAD_REQUEST_EVENT = 'doubao-nomark-download-request';
+    const DOWNLOAD_RESPONSE_EVENT = 'doubao-nomark-download-response';
     const FALLBACK_REQUEST_TIMEOUT_MS = 20000;
     const pendingFallbackRequests = new Map();
+    const pendingDownloadRequests = new Map();
     let fallbackRequestSequence = 0;
+    let downloadRequestSequence = 0;
 
     function isDoubaoHost() {
         return DOUBAO_HOSTS.has(window.location.hostname);
@@ -78,6 +82,16 @@
         else pending.reject(new Error(detail.error || `HTTP ${detail.status || 0}`));
     });
 
+    document.addEventListener(DOWNLOAD_RESPONSE_EVENT, event => {
+        const detail = event.detail;
+        const pending = detail && pendingDownloadRequests.get(detail.requestId);
+        if (!pending) return;
+        pendingDownloadRequests.delete(detail.requestId);
+        clearTimeout(pending.timeoutId);
+        if (detail.ok) pending.resolve();
+        else pending.reject(new Error(detail.error || '后台下载失败'));
+    });
+
     async function requestFallbackJson(value) {
         const url = buildFallbackApiUrl(value);
         if (!url) throw new Error('fallback_api 地址不受信任');
@@ -97,6 +111,20 @@
             pendingFallbackRequests.set(requestId, { resolve, reject, timeoutId });
             document.dispatchEvent(new CustomEvent(FALLBACK_REQUEST_EVENT, {
                 detail: { requestId, url }
+            }));
+        });
+    }
+
+    function requestExtensionDownload(url, filename) {
+        const requestId = `${Date.now().toString(36)}-${(++downloadRequestSequence).toString(36)}`;
+        return new Promise((resolve, reject) => {
+            const timeoutId = setTimeout(() => {
+                pendingDownloadRequests.delete(requestId);
+                reject(new Error('后台下载请求超时'));
+            }, FALLBACK_REQUEST_TIMEOUT_MS);
+            pendingDownloadRequests.set(requestId, { resolve, reject, timeoutId });
+            document.dispatchEvent(new CustomEvent(DOWNLOAD_REQUEST_EVENT, {
+                detail: { requestId, url, filename }
             }));
         });
     }
@@ -891,6 +919,12 @@
         if (!isHttpUrl(url)) return;
         try {
             console.log('[无印豆包] 开始下载:', url);
+
+            if (document.documentElement.dataset.doubaoNomarkBridge === 'ready') {
+                await requestExtensionDownload(url, filename || 'doubao_media');
+                console.log('[无印豆包] 下载任务已提交:', filename);
+                return;
+            }
             
             const response = await fetch(url);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);

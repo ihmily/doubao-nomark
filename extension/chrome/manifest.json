@@ -12,6 +12,7 @@
   "background": {
     "service_worker": "background.js"
   },
+  "permissions": ["downloads"],
   "host_permissions": [
     "https://*.snssdk.com/*",
     "https://*.douyinvod.com/*",
