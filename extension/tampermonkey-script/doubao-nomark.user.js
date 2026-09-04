@@ -1,22 +1,33 @@
 // ==UserScript==
 // @name         无印豆包 - 素材提取
 // @namespace    http://tampermonkey.net/
-// @version      1.0.18
-// @description  在豆包对话页面提取无水印图片/视频，支持一键下载
-// @description:en Extract watermark-free images/videos from Doubao chat pages with one-click download
+// @version      1.0.16
+// @description  在豆包/Dola/千问对话页面提取无水印图片/视频，支持一键下载
+// @description:en Extract watermark-free images/videos from Doubao, Dola, and Qianwen with one-click download
 // @author       无印豆包
 // @homepage     https://github.com/ihmily/doubao-nomark
 // @supportURL   https://github.com/ihmily/doubao-nomark/issues
 // @updateURL    https://github.com/ihmily/doubao-nomark/raw/main/doubao-nomark.user.js
 // @downloadURL  https://github.com/ihmily/doubao-nomark/raw/main/doubao-nomark.user.js
 // @match        https://www.doubao.com/thread/*
+// @match        https://www.doubao.com/share/*
 // @match        https://www.doubao.com/chat/*
+// @match        https://www.dola.com/thread/*
+// @match        https://www.dola.com/share/*
+// @match        https://www.dola.com/chat/*
 // @match        https://www.qianwen.com/chat/*
 // @match        https://www.qianwen.com/share/chat/*
 // @grant        GM_download
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
-// @connect      *
+// @connect      snssdk.com
+// @connect      *.snssdk.com
+// @connect      douyinvod.com
+// @connect      *.douyinvod.com
+// @connect      byteintlapi.com
+// @connect      *.byteintlapi.com
+// @connect      dola.com
+// @connect      *.dola.com
 // @license      MIT
 // @run-at       document-end
 // @icon         data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%221em%22%20height%3D%221em%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20d%3D%22M0%200h24v24H0z%22%20fill%3D%22none%22%2F%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%221.5%22%3E%3Cpath%20d%3D%22M2.5%2013.5v-7h19v7c0%203.771%200%205.657-1.172%206.828S17.272%2021.5%2013.5%2021.5h-3c-3.771%200-5.657%200-6.828-1.172S2.5%2017.271%202.5%2013.5m0-7l.6-.8c1.178-1.57%201.767-2.355%202.611-2.778C6.556%202.5%207.537%202.5%209.5%202.5h5c1.963%200%202.944%200%203.789.422c.845.423%201.433%201.208%202.611%202.778l.6.8%22%2F%3E%3Cpath%20d%3D%22M15%2014.5s-2.21%203-3%203s-3-3-3-3m3%202.5v-6.5%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E
@@ -29,7 +40,25 @@
     const pageWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
     const NativeReadableStream = pageWindow.ReadableStream || ReadableStream;
     const NativeResponse = pageWindow.Response || Response;
+    const DOUBAO_HOSTS = new Set(['www.doubao.com', 'www.dola.com']);
     console.log('[无印豆包] 当前 URL:', pageWindow.location.href);
+
+    function isDoubaoHost() {
+        return DOUBAO_HOSTS.has(pageWindow.location.hostname);
+    }
+
+    function getDoubaoOrigin() {
+        return pageWindow.location.hostname === 'www.dola.com'
+            ? pageWindow.location.origin
+            : 'https://www.doubao.com';
+    }
+
+    function isDoubaoSharePage() {
+        return isDoubaoHost() && (
+            pageWindow.location.pathname.includes('/thread/')
+            || pageWindow.location.pathname.includes('/share/')
+        );
+    }
 
     let chatImages = [];
     let chatVideos = [];
@@ -441,7 +470,8 @@
         };
 
         const queryString = new URLSearchParams(params).toString();
-        const apiUrl = `https://www.doubao.com/samantha/media/get_play_info?${queryString}`;
+        const doubaoOrigin = getDoubaoOrigin();
+        const apiUrl = `${doubaoOrigin}/samantha/media/get_play_info?${queryString}`;
 
         try {
             const response = await fetch(apiUrl, {
@@ -449,7 +479,7 @@
                 credentials: 'include',
                 headers: {
                     'Content-Type': 'application/json',
-                    'origin': 'https://www.doubao.com',
+                    'origin': doubaoOrigin,
                 },
                 body: JSON.stringify({ key: vid }),
             });
@@ -502,13 +532,53 @@
         console.log('[无印豆包] 找到 fallback_api 数量:', fallbackApis.length);
         removeLegacyDoubaoVideos();
         for (const fallbackApi of fallbackApis) {
-            if (processedFallbackApis.has(fallbackApi)) continue;
-            processedFallbackApis.add(fallbackApi);
-
-            getDoubaoVideoInfoFromFallbackApi(fallbackApi)
-                .then(info => addChatVideo(info))
-                .catch(error => console.warn('[无印豆包] fallback_api 解析失败:', error));
+            processDoubaoFallbackApi(fallbackApi);
         }
+    }
+
+    function processDoubaoFallbackApi(fallbackApi) {
+        if (processedFallbackApis.has(fallbackApi)) return;
+        processedFallbackApis.add(fallbackApi);
+        getDoubaoVideoInfoFromFallbackApi(fallbackApi)
+            .then(info => addChatVideo(info))
+            .catch(error => console.warn('[无印豆包] fallback_api 解析失败:', error));
+    }
+
+    function extractShareFallbackApis(root) {
+        const apis = new Set();
+        const scripts = root.querySelectorAll(
+            'script[data-script-src="modern-run-router-data-fn"], script[data-script-src="modern-run-window-fn"]'
+        );
+        for (const script of scripts) {
+            const rawArgs = script.getAttribute('data-fn-args');
+            if (!rawArgs) continue;
+            try {
+                const data = JSON.parse(rawArgs.replace(/&quot;/g, '"'));
+                for (const api of findDoubaoFallbackApis(data, rawArgs)) apis.add(api);
+            } catch (_) { /* Ignore unrelated route data. */ }
+        }
+        return [...apis];
+    }
+
+    async function loadSharePageVideos() {
+        const apis = new Set(extractShareFallbackApis(document));
+        try {
+            const response = await originalFetch.call(pageWindow, pageWindow.location.href, {
+                credentials: 'include',
+            });
+            if (response.ok) {
+                const html = await response.text();
+                const Parser = pageWindow.DOMParser || DOMParser;
+                const page = new Parser().parseFromString(html, 'text/html');
+                for (const api of extractShareFallbackApis(page)) apis.add(api);
+            }
+        } catch (error) {
+            console.warn('[无印豆包] 获取分享页 HTML 失败:', error);
+        }
+
+        console.log('[无印豆包] 分享页 fallback_api 数量:', apis.size);
+        removeLegacyDoubaoVideos();
+        for (const fallbackApi of apis) processDoubaoFallbackApi(fallbackApi);
     }
 
     async function getDoubaoVideoInfoFromFallbackApi(fallbackApi) {
@@ -1039,7 +1109,7 @@
 
     function extractImages() {
 
-        if (pageWindow.location.hostname.includes('doubao.com') && pageWindow.location.pathname.includes('/chat/')) {
+        if (isDoubaoHost() && pageWindow.location.pathname.includes('/chat/')) {
             console.log('[无印豆包] 豆包聊天界面，返回已缓存的', chatImages.length, '张图片');
             return chatImages;
         } else if (pageWindow.location.hostname.includes('qianwen.com') && pageWindow.location.pathname.includes('/chat/')) {
@@ -1349,6 +1419,12 @@
     }
 
     function createFloatingButton() {
+        if (document.documentElement.dataset.doubaoNomarkPanel) {
+            console.log('[无印豆包] 检测到浏览器扩展，跳过油猴界面初始化');
+            return;
+        }
+        if (document.getElementById(NOMARK_BUTTON_HOST_ID)) return;
+
         const button = document.createElement('div');
         button.innerHTML = `
             <style>
@@ -2326,7 +2402,7 @@
         }
 
         const hasScriptData = !!document.querySelector(
-            'script[data-script-src="modern-run-router-data-fn"], script[data-script-src="modern-run-window-fn"][data-fn-name="mergeLoaderData"]'
+            'script[data-script-src="modern-run-router-data-fn"], script[data-script-src="modern-run-window-fn"]'
         );
         const hasRouterData = !!window._ROUTER_DATA;
 
@@ -2341,8 +2417,9 @@
             }
         }
 
-        if (pageWindow.location.hostname.includes('doubao.com') && pageWindow.location.pathname.includes('/thread/')) {
+        if (isDoubaoSharePage()) {
             chatImages = extractSharePageImages();
+            loadSharePageVideos();
         }
 
         createFloatingButton();
