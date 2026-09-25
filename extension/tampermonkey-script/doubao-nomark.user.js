@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         无印豆包 - 素材提取
 // @namespace    http://tampermonkey.net/
-// @version      1.0.16
+// @version      1.0.17
 // @description  在豆包/Dola/千问对话页面提取无水印图片/视频，支持一键下载
 // @description:en Extract watermark-free images/videos from Doubao, Dola, and Qianwen with one-click download
 // @author       无印豆包
@@ -122,6 +122,17 @@
             };
         }
         return null;
+    }
+
+    function getDoubaoBlockCreations(block) {
+        const content = block?.content_v2 || block?.content;
+        const data = typeof content === 'string' ? parseJsonString(content) : content;
+        const creations = data?.creation_block?.creations || [];
+        const media = data?.rich_media_layout_block?.media || [];
+        return [
+            ...(Array.isArray(creations) ? creations : []),
+            ...(Array.isArray(media) ? media.map(item => item?.creation).filter(Boolean) : [])
+        ];
     }
 
     function addChatVideo(videoInfo) {
@@ -365,13 +376,7 @@
                         Array.isArray(op.patch_value.content_block)
                     ) {
                         for (const block of op.patch_value.content_block) {
-                            if (
-                                block?.content?.creation_block &&
-                                Array.isArray(block.content.creation_block.creations)
-                            ) {
-                                creations = block.content.creation_block.creations;
-                                break;
-                            }
+                            creations.push(...getDoubaoBlockCreations(block));
                         }
                     }
                 }
@@ -389,16 +394,7 @@
                             const creationFullContent_obj = JSON.parse(creationFullContent);
 
                             for (const item of creationFullContent_obj) {
-                                const content = item?.BlockInfo?.BlockContent?.content;
-                                if (
-                                    content &&
-                                    typeof content === 'object' &&
-                                    content.creation_block &&
-                                    Array.isArray(content.creation_block.creations)
-                                ) {
-                                    creations = content.creation_block.creations;
-                                    break;
-                                }
+                                creations.push(...getDoubaoBlockCreations(item?.BlockInfo?.BlockContent));
                             }
                         } catch (e) {
                             console.warn('Failed to parse creation_full_content:', e);
@@ -972,10 +968,8 @@
         try {
             for (const item of messages) {
                 try {
-                    for (const content of item.content_block) {
-                        const creationBlock = content.content?.creation_block;
-                        if (!creationBlock || !Array.isArray(creationBlock.creations)) continue;
-                        for (const creation of creationBlock.creations) {
+                    for (const content of item.content_block || []) {
+                        for (const creation of getDoubaoBlockCreations(content)) {
                             if (creation?.video) {
                                 handleDoubaoCreationVideo(creation);
                             }else{
@@ -997,6 +991,15 @@
 
         if (addedCount > 0) {
             console.log('[无印豆包] 合并聊天图片，新增', addedCount, '张，共', chatImages.length, '张');
+        }
+    }
+
+    function parseChatRouterImages() {
+        const pages = pageWindow._ROUTER_DATA?.loaderData?.chat_layout;
+        if (!pages) return;
+        for (const page of Object.values(pages)) {
+            const messages = page?.messageList?.message_list;
+            if (Array.isArray(messages)) parseChatHistoryImages(messages);
         }
     }
 
@@ -2397,6 +2400,7 @@
         console.log('[无印豆包] 脚本已加载');
 
         if (pageWindow.location.pathname.includes('/chat/')) {
+            if (isDoubaoHost()) parseChatRouterImages();
             createFloatingButton();
             return;
         }
